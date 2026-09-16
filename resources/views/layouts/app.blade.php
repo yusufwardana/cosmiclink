@@ -3,52 +3,16 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'CosmicLink' }}</title>
-    <style>
-        body { font-family: system-ui; margin: 2rem; max-width: 1100px; }
-        nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
-        table { border-collapse: collapse; width: 100%; }
-        td, th { border: 1px solid #ddd; padding: .5rem; }
-        input, select, textarea { display: block; margin: .25rem 0 1rem; padding: .4rem; width: 100%; max-width: 420px; }
-        .notice { padding: .75rem; background: #fff3cd; }
-        .error { color: #b00; }
-        button { padding: .4rem .8rem; }
-    </style>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body>
     @auth
-        <nav>
-            <a href="{{ route('dashboard') }}">Dashboard</a>
-            <a href="{{ route('customers.index') }}">Customers</a>
-            <a href="{{ route('packages.index') }}">Internet Packages</a>
-            <a href="{{ route('billing.invoices.index') }}">Billing / Invoices</a>
-            <a href="{{ route('billing.payments.index') }}">Payments</a>
-            <a href="{{ route('messages.index') }}">Messages</a>
-            <a href="{{ route('monitoring.index') }}">Monitoring</a>
-            <a href="{{ route('routers.index') }}">Routers</a>
-            <a href="{{ route('network.accounts.index') }}">Network Lab / Simulated PPPoE</a>
-            <a href="{{ route('network.logs.index') }}">Operation Logs</a>
-            <form method="post" action="{{ route('logout') }}">
-                @csrf
-                <button>Logout</button>
-            </form>
-        </nav>
+        <div id="cosmiclink-shell" data-base-url="{{ url('/') }}" data-csrf-token="{{ csrf_token() }}" data-current-route="{{ request()->route()?->getName() }}" data-tenant="{{ auth()->user()->tenant?->name }}" data-operator="{{ auth()->user()->name }}" data-simulation="{{ config('network.simulation') || config('monitoring.simulation') ? 'true' : 'false' }}"></div>
+        <div class="app-main"><main class="content-wrap">@include('partials.flash') @yield('content')</main></div>
+    @else
+        <main class="guest-main">@include('partials.flash') @yield('content')</main>
     @endauth
-
-    @if (session('status'))
-        <div class="notice">{{ session('status') }}</div>
-    @endif
-
-    @if ($errors->any())
-        <div class="error">
-            <ul>
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
-    @yield('content')
 </body>
 </html>

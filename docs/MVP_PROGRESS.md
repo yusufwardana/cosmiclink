@@ -825,6 +825,62 @@ Automatic outage notifications use only `FakeMessagingProvider` in this phase.
 Real WhatsApp, real monitoring, queues, scheduler, ticketing, technicians,
 inventory, topology, AI, and later phases remain **NOT IMPLEMENTED**.
 
+## Phase 5A — Frontend Foundation & Design System
+
+Phase 5A introduces a Vue 3 foundation while preserving the existing Laravel and
+Blade page architecture. Vue is mounted only for the authenticated global shell;
+existing Blade module pages, forms, routes, policies, and backend actions remain
+the source of truth. The Laravel API boundary is intentionally deferred to Phase
+5B.
+
+### Frontend stack and design system
+
+The frontend uses the existing Vite/Tailwind toolchain plus Vue 3 and
+`@vitejs/plugin-vue`. No React, Inertia, component library, or backend dependency
+was added. Global native CSS tokens define the CosmicLink operations language:
+ink/navy surfaces, restrained cyan accents, paper workspace backgrounds, compact
+spacing, 8/12px radii, card shadows, readable table density, and responsive
+breakpoints.
+
+Reusable Vue primitives include the authenticated `AppShell` and `UiStatusBadge`,
+with shared CSS primitives for page headers, cards, stat cards, buttons, alerts,
+forms, tables, focus states, and empty-state styling. Status colors cover network,
+lifecycle, billing, incident, and operation vocabularies without relying on
+decorative gradients or a generic admin template.
+
+### App shell
+
+Authenticated pages now use a desktop sidebar, fixed topbar, operator/tenant
+context, active navigation state, sign-out action, and a visible Simulation Mode
+indicator when fake providers are active. Navigation is grouped into Overview,
+Customers, Billing, Network, Operations, and System. Only existing working routes
+are exposed. On mobile, the sidebar becomes an accessible slide-over with a menu
+button and backdrop close behavior. Base URLs are passed from Blade so the shell
+works under the `/cosmiclink` subdirectory as well as the local server root.
+
+### Dashboard and compatibility
+
+The dashboard presentation now highlights existing data only: customers, active
+connections, billing attention, and network accounts, plus manual billing actions
+and recent network operations. No fake analytics or new API was introduced. The
+existing Customers, Billing, Routers, Monitoring, Outage Incidents, Messages, and
+Customer 360 Blade routes continue to render under the new shell.
+
+### Verification and scope
+
+Frontend build: **PASS** (`npm run build`). Backend regression: **63 passed / 241
+assertions**. Pint remains **PASS — 139 files** and `git diff --check` passes.
+Playwright browser verification passed login, dashboard, branding, simulation
+indicator, all primary navigation routes, Customer 360, mobile menu open/close,
+and zero browser console errors. Phase 4C business flows remain backend-tested;
+this foundation does not modify them.
+
+Vue 3 frontend foundation: **VERIFIED**.
+Laravel API boundary: **NOT IMPLEMENTED — Phase 5B**.
+Full SPA/module migration: **NOT IMPLEMENTED**.
+PostgreSQL, Redis, Go Network Engine, RouterOS, real monitoring, and later phases:
+**NOT IMPLEMENTED**.
+
 Browser evidence used the local `artisan serve` runtime with Playwright Chromium
 for Testing 143.0.7499.4. The Monitoring UI showed healthy baseline with no
 incident, then three same-router connections were set offline. One incident was
