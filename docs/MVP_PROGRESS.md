@@ -623,3 +623,67 @@ manual browser instructions; this agent run did not claim browser execution.
 - Final regression after browser verification: **49 passed / 193 assertions**.
 - Manual browser verification: **VERIFIED**; all required Phase 3.1 browser flows
   passed. Real providers and integrations remain **NOT IMPLEMENTED**.
+
+## Phase 4A — Monitoring Foundation + Network Health Simulation
+
+### Monitoring architecture
+
+Phase 4A adds a provider-neutral `MonitoringDriver` contract, separate from the
+existing `NetworkDriver`. `MonitoringDriver` only observes health; `NetworkDriver`
+continues to mutate PPPoE/network state. `MonitoringService` owns tenant-scoped
+observation orchestration and persists typed `HealthObservationResult` values as
+`HealthObservation` records.
+
+`FakeMonitoringDriver` is the deterministic implementation. It supports router
+`online`, `degraded`, and `offline`, plus connection `online`, `offline`, and
+`unknown`. Metrics are intentionally small: reachability/online state, latency,
+packet loss, observed time, and a simulation marker. It never changes state
+randomly and does not call `NetworkOperationService`.
+
+### Persistence and current health
+
+`health_observations` stores tenant, constrained subject type (`router` or
+`connection`), subject ID, health state, metrics, provider, metadata, and observed
+time. Indexes cover tenant/subject/time and tenant/state. History is append-only;
+the latest observation is selected per subject for the operator view. The data can
+answer which router and customer connection was observed at a timestamp and when
+it recovered, without implementing outage incidents or correlation.
+
+### Simulation and safety
+
+Development simulation state is stored on routers and customer connections. The
+controls are exposed only when `MONITORING_DRIVER=fake` and `APP_ENV` is `local` or
+`demo`; unsupported monitoring drivers fail closed and do not expose fake controls.
+The Monitoring page clearly states `SIMULATION MODE` and that no physical router
+is monitored. Monitoring failures/observations do not mutate invoices, payments,
+customer lifecycle status, network account status, network operation logs, or
+message logs. An active connection may therefore be observed `offline` while its
+administrative status remains `active`.
+
+### Operator UI and Customer 360
+
+The authenticated, tenant-scoped Monitoring page provides router and connection
+tables, current state, metrics, last checked time, manual observation, simulation
+controls, a tenant-scoped bulk `Run Monitoring Check`, and compact history. Customer
+360 now displays Network Health and Last Checked beside each connection while
+retaining billing, payment, message, and network-operation sections.
+
+### Verification and limitations
+
+Phase 4A automated coverage: **VERIFIED**, 7 focused tests / 26 assertions; full
+regression after implementation: **56 passed / 219 assertions**. Browser automation
+verified login, Monitoring baseline, healthy observations, simulated router and
+connection outage, active lifecycle preservation, Customer 360 offline health,
+recovery to online, and retained history (`ONLINE` → `OFFLINE` → `ONLINE`).
+
+Fake monitoring: **VERIFIED**.
+
+Real RouterOS monitoring: **NOT IMPLEMENTED**.
+SNMP: **NOT IMPLEMENTED**.
+Real ICMP monitoring: **NOT IMPLEMENTED**.
+Automatic polling: **NOT IMPLEMENTED**.
+Scheduler: **NOT IMPLEMENTED**.
+Outage correlation: **NOT IMPLEMENTED**.
+Outage incidents: **NOT IMPLEMENTED**.
+Automatic outage notifications: **NOT IMPLEMENTED**.
+Phase 4B: **NOT STARTED**.

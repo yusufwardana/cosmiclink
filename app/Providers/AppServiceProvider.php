@@ -18,6 +18,8 @@ use App\Policies\PaymentRequestPolicy;
 use App\Policies\RouterPolicy;
 use App\Services\Messaging\FakeMessagingProvider;
 use App\Services\Messaging\MessagingProvider;
+use App\Services\Monitoring\Contracts\MonitoringDriver;
+use App\Services\Monitoring\FakeMonitoringDriver;
 use App\Services\Network\FakeNetworkDriver;
 use App\Services\Network\NetworkDriver;
 use App\Services\Payments\FakePaymentGateway;
@@ -49,6 +51,13 @@ class AppServiceProvider extends ServiceProvider
             }
 
             return $app->make(FakeMessagingProvider::class);
+        });
+        $this->app->bind(MonitoringDriver::class, function ($app) {
+            if (config('monitoring.driver') !== 'fake') {
+                throw new \RuntimeException('No monitoring driver is configured.');
+            }
+
+            return $app->make(FakeMonitoringDriver::class);
         });
     }
 

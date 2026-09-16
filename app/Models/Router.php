@@ -10,7 +10,7 @@ class Router extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'name', 'description', 'host', 'api_port', 'username', 'status', 'driver', 'last_seen_at'];
+    protected $fillable = ['tenant_id', 'name', 'description', 'host', 'api_port', 'username', 'status', 'driver', 'last_seen_at', 'monitoring_state'];
 
     protected $hidden = ['encrypted_credentials'];
 
@@ -39,5 +39,15 @@ class Router extends Model
     public function operationLogs()
     {
         return $this->hasMany(NetworkOperationLog::class);
+    }
+
+    public function healthObservations()
+    {
+        return $this->hasMany(HealthObservation::class, 'subject_id')->where('subject_type', 'router');
+    }
+
+    public function networkHealth()
+    {
+        return $this->healthObservations()->latestOfMany('observed_at');
     }
 }

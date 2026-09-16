@@ -9,7 +9,7 @@ class CustomerConnection extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'customer_id', 'internet_package_id', 'router_id', 'network_account_id', 'status', 'suspension_reason', 'provisioned_at', 'suspended_at', 'failed_at', 'failure_code', 'failure_message', 'metadata'];
+    protected $fillable = ['tenant_id', 'customer_id', 'internet_package_id', 'router_id', 'network_account_id', 'status', 'suspension_reason', 'provisioned_at', 'suspended_at', 'failed_at', 'failure_code', 'failure_message', 'metadata', 'monitoring_state'];
 
     protected $casts = ['provisioned_at' => 'datetime', 'suspended_at' => 'datetime', 'failed_at' => 'datetime', 'metadata' => 'array'];
 
@@ -64,5 +64,15 @@ class CustomerConnection extends Model
     public function messageLogs()
     {
         return $this->hasMany(MessageLog::class);
+    }
+
+    public function healthObservations()
+    {
+        return $this->hasMany(HealthObservation::class, 'subject_id')->where('subject_type', 'connection');
+    }
+
+    public function networkHealth()
+    {
+        return $this->healthObservations()->latestOfMany('observed_at');
     }
 }

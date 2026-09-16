@@ -24,6 +24,7 @@
             <a href="{{ route('billing.invoices.index') }}">Billing / Invoices</a>
             <a href="{{ route('billing.payments.index') }}">Payments</a>
             <a href="{{ route('messages.index') }}">Messages</a>
+            <a href="{{ route('monitoring.index') }}">Monitoring</a>
             <a href="{{ route('routers.index') }}">Routers</a>
             <a href="{{ route('network.accounts.index') }}">Network Lab / Simulated PPPoE</a>
             <a href="{{ route('network.logs.index') }}">Operation Logs</a>
