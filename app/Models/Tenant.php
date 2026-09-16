@@ -41,6 +41,21 @@ class Tenant extends Model
         return $this->hasMany(CustomerConnection::class);
     }
 
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function billingAutomationAttempts()
+    {
+        return $this->hasMany(BillingAutomationAttempt::class);
+    }
+
     public function operationLogs()
     {
         return $this->hasMany(NetworkOperationLog::class);

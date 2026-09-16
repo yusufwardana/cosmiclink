@@ -5,10 +5,14 @@ namespace App\Providers;
 use App\Models\Customer;
 use App\Models\CustomerConnection;
 use App\Models\InternetPackage;
+use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\Router;
 use App\Policies\CustomerConnectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\InternetPackagePolicy;
+use App\Policies\InvoicePolicy;
+use App\Policies\PaymentPolicy;
 use App\Policies\RouterPolicy;
 use App\Services\Network\FakeNetworkDriver;
 use App\Services\Network\NetworkDriver;
@@ -34,5 +38,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Customer::class, CustomerPolicy::class);
         Gate::policy(InternetPackage::class, InternetPackagePolicy::class);
         Gate::policy(CustomerConnection::class, CustomerConnectionPolicy::class);
+        Gate::policy(Invoice::class, InvoicePolicy::class);
+        Gate::policy(Payment::class, PaymentPolicy::class);
     }
 }

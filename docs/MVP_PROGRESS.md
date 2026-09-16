@@ -220,6 +220,191 @@ CustomerConnections to Customers and from CustomerConnections to their network
 operation logs. Outage detection, monitoring, notifications, and AI remain out
 of scope.
 
+## Phase 2 — Billing Engine + Smart Auto-Isolation + Auto-Reactivation
+
+### Architecture
+
+Phase 2 keeps financial state separate from network state:
+
+```text
+Invoice -> Payment
+    |
+    v
+CustomerConnection -> NetworkAccount -> NetworkOperationService
+                                  -> NetworkDriver -> FakeNetworkDriver
+```
+
+`Invoice`, `InvoiceItem`, `Payment`, and `BillingAutomationAttempt` are separate
+domain entities. NetworkOperationLog remains a network audit record and is not
+used as the sole billing audit trail. Billing actions call dedicated network
+actions, never `FakeNetworkDriver` directly.
+
+### Invoice lifecycle and billing period
+
+Invoices use integer Indonesian Rupiah values. The lifecycle is:
+
+```text
+unpaid -> overdue -> paid
+draft/cancelled are reserved states; cancelled invoices are never enforced.
+```
+
+Overdue begins strictly after `due_date` (`due_date < today`). Normal recurring
+billing is eligible for provisioned `active` and billing-suspended `suspended`
+connections. This prevents a billing suspension from silently stopping future
+charges. There is no proration, tax, late fee, discount engine, or cancellation
+workflow in Phase 2.
+
+Invoice numbers are assigned after insert from the persisted invoice ID in the
+format `INV-YYYYMM-000001`, with a unique database constraint. Generation uses
+`GenerateInvoiceForConnection` and `GenerateMonthlyInvoices`, with a unique
+tenant/connection/billing-period constraint and price/description snapshots in
+InvoiceItem. Changing a package price does not change an existing invoice.
+
+### Payments and financial integrity
+
+Manual payments support `cash`, `bank_transfer`, and `manual`. Partial payments
+increase `paid_amount` while retaining `unpaid` or `overdue` status. Overpayments,
+duplicate payment references, cancelled invoices, and already-paid invoices are
+rejected. Full payment marks the invoice `paid` and records `paid_at`.
+
+Payment database transactions cover only local financial writes. Network calls are
+performed after that transaction, so a legitimate payment is never rolled back by
+a router failure.
+
+### Overdue policy and Smart Auto-Isolation
+
+`MarkOverdueInvoices` transitions only unpaid invoices with an outstanding balance
+and a due date before the application date. `ProcessOverdueBilling` enforces an
+overdue invoice only when its connection is provisioned and active. Successful
+`SuspendCustomerConnection` calls `NetworkOperationService`, then sets:
+
+```text
+NetworkAccount.status = disabled
+CustomerConnection.status = suspended
+CustomerConnection.suspension_reason = billing_overdue
+```
+
+Customer.status is never changed by billing. Repeated enforcement does not issue a
+second successful suspension for an already-processed connection. If the network
+operation fails, the invoice remains overdue, the connection remains active, the
+account is not falsely disabled, and the billing attempt is recorded as failed.
+
+### Auto-Reactivation
+
+Full payment invokes `ReactivateCustomerConnection` only when the connection is
+suspended for `billing_overdue`. Manual suspension is not auto-reactivated. A
+connection is reactivated only when no other unpaid/overdue outstanding invoice
+remains for that connection. Successful reactivation enables the NetworkAccount,
+sets the connection active, and clears suspension fields. If the router is
+unavailable, the invoice/payment remain valid and paid while the connection stays
+suspended; the failed automation attempt and failed traced network operation are
+retained.
+
+### Billing audit and tenant isolation
+
+`BillingAutomationAttempt` records tenant, invoice, connection, action, status,
+timestamps, and sanitized failure information. Billing-triggered enable/disable
+operations also carry `NetworkOperationLog.customer_connection_id`.
+
+Invoice and payment pages and actions are tenant-scoped through policies and
+server-side ownership checks. Request tenant/customer/connection ownership is not
+trusted. The dashboard exposes unpaid/overdue counts, outstanding amount,
+billing-suspended connections, and recent payments. The UI supports invoice list,
+invoice detail, generation, manual payment entry, payment history, and overdue
+enforcement. Artisan commands call the same services:
+
+```text
+billing:generate [--period=YYYY-MM]
+billing:mark-overdue
+billing:enforce
+```
+
+These commands are not scheduled automatically; Laravel Scheduler can invoke them
+later without duplicating business logic.
+
+### Phase 2 verification
+
+- Automated suite: **VERIFIED**, 34 tests and 143 assertions; Phase 0, Phase 1,
+  Phase 1.1, and Phase 2 tests remain passing.
+- `vendor/bin/pint --test`: **VERIFIED PASS**, 95 files.
+- `php artisan migrate:fresh --seed --force`: **VERIFIED PASS**.
+- `git diff --check`: **VERIFIED PASS**.
+- Seed data includes paid, unpaid, and overdue invoices with invoice items and a
+  representative manual payment. The seeded overdue connection is active before
+  any enforcement action, with no pre-seeded suspension audit row.
+- Manual browser verification: **NOT TESTED** if a browser runtime is unavailable;
+  automated HTTP/service verification is not claimed as browser verification.
+
+### Explicit limitations and out of scope
+
+Payment Gateway / QRIS: **NOT IMPLEMENTED**.
+
+WhatsApp: **NOT IMPLEMENTED**.
+
+Real RouterOS and `RouterOsV6NetworkDriver`: **NOT IMPLEMENTED**.
+
+Network implementation: `FakeNetworkDriver`.
+
+No scheduler, queue, distributed idempotency key, reconciliation worker, proration,
+tax, late fees, or gateway webhook exists yet. Billing enforcement is currently a
+manual action/command and is designed for future scheduled invocation. Phase 3 is
+not started.
+
+## Phase 2.1 — Billing USP Manual Verification Fixture
+
+### Status
+
+**Phase 2.1 — VERIFIED for fixture consistency and automated workflow tests;
+manual browser verification remains NOT TESTED and must be performed by the
+operator.**
+
+The original DemoNet seed started Andi Pratama after billing isolation had already
+occurred: his connection was suspended, his NetworkAccount was disabled, and no
+fresh automation attempt could be produced by the manual enforcement button. The
+button correctly processed zero connections because the enforcement policy requires
+an overdue, provisioned, currently active connection.
+
+The seed now deliberately starts Andi's stable demo records before enforcement:
+
+```text
+Andi Pratama / CL000003 / CON000003
+Invoice: overdue, outstanding Rp100000
+CustomerConnection: active, no suspension reason
+NetworkAccount: active
+BillingAutomationAttempt: none for the demo suspension
+Billing NetworkOperationLog: none for the demo suspension
+```
+
+No audit rows are manufactured by the seeder. The operator can now execute the
+real application sequence:
+
+```text
+Mark overdue and enforce isolation
+  -> processed 1 connection
+  -> suspend success / NetworkAccount disabled / connection suspended
+Record Rp100000 manual payment
+  -> invoice paid
+  -> reactivation success / NetworkAccount active / connection active
+```
+
+The Customer 360 table displays the safe suspension reason, and invoice detail
+displays real BillingAutomationAttempt rows. Network operation logs continue to
+display the connection code without exposing secrets. A second enforcement click
+is a no-op for the already suspended connection.
+
+The root route now redirects guests to `/login` and authenticated users to
+`/dashboard`; the Laravel default welcome page is no longer exposed at `/`.
+
+Added regression coverage verifies seeded state, real enforcement, real payment and
+reactivation, absence of pre-seeded suspension audit rows, repeated-enforcement
+idempotency, and the root redirect. The fixture reuses Andi through stable name and
+relationship lookup in the test; no database IDs are hardcoded in the seeder.
+
+Phase 2 billing rules, multiple-overdue protection, manual-suspension protection,
+tenant isolation, and financial/network separation were not weakened. Manual
+browser success and failure/retry verification remain **NOT TESTED** until the
+operator completes them in a real browser.
+
 ### Limitations and out of scope
 
 - `FakeNetworkDriver` is the only network implementation; real RouterOS and

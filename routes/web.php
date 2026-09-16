@@ -1,24 +1,32 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CustomerConnectionController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InternetPackageController;
 use App\Http\Controllers\NetworkAccountController;
 use App\Http\Controllers\OperationLogController;
+use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\RouterController;
 use App\Models\NetworkAccount;
 use App\Services\Network\NetworkOperationService;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => auth()->check() ? redirect()->route('dashboard') : view('welcome'));
+Route::get('/', fn () => auth()->check() ? redirect()->route('dashboard') : redirect()->route('login'));
 Route::get('/login', [AuthController::class, 'create'])->name('login');
 Route::post('/login', [AuthController::class, 'store'])->name('login.store');
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->name('logout');
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/billing/invoices', [BillingController::class, 'index'])->name('billing.invoices.index');
+    Route::get('/billing/invoices/{invoice}', [BillingController::class, 'show'])->name('billing.invoices.show');
+    Route::post('/billing/generate', [BillingController::class, 'generate'])->name('billing.generate');
+    Route::post('/billing/overdue', [BillingController::class, 'overdue'])->name('billing.overdue');
+    Route::get('/billing/payments', [PaymentController::class, 'index'])->name('billing.payments.index');
+    Route::post('/billing/invoices/{invoice}/payments', [PaymentController::class, 'store'])->name('billing.payments.store');
     Route::resource('customers', CustomerController::class)->except(['destroy']);
     Route::delete('/customers/{customer}', [CustomerController::class, 'destroy'])->name('customers.destroy');
     Route::resource('packages', InternetPackageController::class)->except(['destroy']);

@@ -23,12 +23,12 @@ class NetworkOperationService
         return $this->execute('CREATE_PPPOE', $router, $account['username'], $account, fn () => $this->driver->createPppoeAccount($router, $account), $user, $connection);
     }
 
-    public function changeStatus(NetworkAccount $account, string $status, ?User $user = null): NetworkOperationResult
+    public function changeStatus(NetworkAccount $account, string $status, ?User $user = null, ?CustomerConnection $connection = null): NetworkOperationResult
     {
         $operation = $status === 'active' ? 'ENABLE_PPPOE' : 'DISABLE_PPPOE';
         $result = $this->execute($operation, $account->router, $account->username, [], fn () => $status === 'active'
             ? $this->driver->enablePppoeAccount($account->router, $account->username)
-            : $this->driver->disablePppoeAccount($account->router, $account->username), $user);
+            : $this->driver->disablePppoeAccount($account->router, $account->username), $user, $connection);
         if ($result->successful) {
             $account->update(['status' => $status]);
         }

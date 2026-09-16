@@ -5,7 +5,9 @@ namespace Database\Seeders;
 use App\Models\Customer;
 use App\Models\CustomerConnection;
 use App\Models\InternetPackage;
+use App\Models\Invoice;
 use App\Models\NetworkAccount;
+use App\Models\Payment;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
@@ -38,10 +40,15 @@ class DatabaseSeeder extends Seeder
                 'tenant_id' => $tenant->id,
                 'router_id' => $router->id,
                 'username' => 'cust00'.($index + 1),
-                'profile' => 'HOME-10M', 'status' => $index === 2 ? 'disabled' : 'active',
+                'profile' => 'HOME-10M', 'status' => 'active',
                 'metadata' => ['profiles' => ['HOME-10M', 'HOME-20M', 'HOME-50M']],
             ]);
-            CustomerConnection::create(['tenant_id' => $tenant->id, 'customer_id' => $customer->id, 'internet_package_id' => $packages->first()->id, 'router_id' => $router->id, 'network_account_id' => NetworkAccount::latest('id')->first()->id, 'status' => 'active', 'provisioned_at' => now()]);
+            $connection = CustomerConnection::create(['tenant_id' => $tenant->id, 'customer_id' => $customer->id, 'internet_package_id' => $packages->first()->id, 'router_id' => $router->id, 'network_account_id' => NetworkAccount::latest('id')->first()->id, 'status' => 'active', 'suspension_reason' => null, 'suspended_at' => null, 'provisioned_at' => now()]);
+            $invoice = Invoice::create(['tenant_id' => $tenant->id, 'customer_id' => $customer->id, 'customer_connection_id' => $connection->id, 'billing_period_start' => now()->startOfMonth(), 'billing_period_end' => now()->endOfMonth(), 'issue_date' => now()->toDateString(), 'due_date' => now()->subDays($index === 2 ? 3 : -7)->toDateString(), 'subtotal' => 100000, 'discount' => 0, 'total' => 100000, 'paid_amount' => $index === 0 ? 100000 : 0, 'status' => $index === 0 ? 'paid' : ($index === 2 ? 'overdue' : 'unpaid'), 'paid_at' => $index === 0 ? now() : null]);
+            $invoice->items()->create(['customer_connection_id' => $connection->id, 'internet_package_id' => $packages->first()->id, 'description' => 'Home 10 snapshot', 'quantity' => 1, 'unit_price' => 100000, 'amount' => 100000]);
+            if ($index === 0) {
+                Payment::create(['tenant_id' => $tenant->id, 'invoice_id' => $invoice->id, 'customer_id' => $customer->id, 'payment_reference' => 'SEED-PAY-001', 'amount' => 100000, 'method' => 'manual', 'paid_at' => now(), 'status' => 'confirmed']);
+            }
         }
     }
 }

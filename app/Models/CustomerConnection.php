@@ -9,7 +9,7 @@ class CustomerConnection extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'customer_id', 'internet_package_id', 'router_id', 'network_account_id', 'status', 'provisioned_at', 'suspended_at', 'failed_at', 'failure_code', 'failure_message', 'metadata'];
+    protected $fillable = ['tenant_id', 'customer_id', 'internet_package_id', 'router_id', 'network_account_id', 'status', 'suspension_reason', 'provisioned_at', 'suspended_at', 'failed_at', 'failure_code', 'failure_message', 'metadata'];
 
     protected $casts = ['provisioned_at' => 'datetime', 'suspended_at' => 'datetime', 'failed_at' => 'datetime', 'metadata' => 'array'];
 
@@ -24,6 +24,11 @@ class CustomerConnection extends Model
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function automationAttempts()
+    {
+        return $this->hasMany(BillingAutomationAttempt::class);
     }
 
     public function customer()
@@ -44,5 +49,15 @@ class CustomerConnection extends Model
     public function networkAccount()
     {
         return $this->belongsTo(NetworkAccount::class);
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function operationLogs()
+    {
+        return $this->hasMany(NetworkOperationLog::class);
     }
 }
