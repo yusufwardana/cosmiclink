@@ -42,6 +42,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/monitoring/routers/{router}/simulation', [MonitoringController::class, 'routerSimulation'])->name('monitoring.routers.simulation');
     Route::post('/monitoring/connections/{connection}/simulation', [MonitoringController::class, 'connectionSimulation'])->name('monitoring.connections.simulation');
     Route::get('/monitoring/history/{type}/{id}', [MonitoringController::class, 'history'])->name('monitoring.history');
+    Route::get('/monitoring/incidents/{incident}', [MonitoringController::class, 'incident'])->name('monitoring.incidents.show');
+    Route::post('/monitoring/incidents/{incident}/acknowledge', [MonitoringController::class, 'acknowledge'])->name('monitoring.incidents.acknowledge');
     Route::resource('customers', CustomerController::class)->except(['destroy']);
     Route::delete('/customers/{customer}', [CustomerController::class, 'destroy'])->name('customers.destroy');
     Route::resource('packages', InternetPackageController::class)->except(['destroy']);

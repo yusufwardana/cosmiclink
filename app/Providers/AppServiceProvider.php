@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\CustomerConnection;
 use App\Models\InternetPackage;
 use App\Models\Invoice;
+use App\Models\OutageIncident;
 use App\Models\Payment;
 use App\Models\PaymentRequest;
 use App\Models\Router;
@@ -13,6 +14,7 @@ use App\Policies\CustomerConnectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\InternetPackagePolicy;
 use App\Policies\InvoicePolicy;
+use App\Policies\OutageIncidentPolicy;
 use App\Policies\PaymentPolicy;
 use App\Policies\PaymentRequestPolicy;
 use App\Policies\RouterPolicy;
@@ -70,5 +72,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Invoice::class, InvoicePolicy::class);
         Gate::policy(Payment::class, PaymentPolicy::class);
         Gate::policy(PaymentRequest::class, PaymentRequestPolicy::class);
+        Gate::policy(OutageIncident::class, OutageIncidentPolicy::class);
     }
 }

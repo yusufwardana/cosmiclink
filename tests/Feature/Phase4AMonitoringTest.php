@@ -8,6 +8,7 @@ use App\Models\HealthObservation;
 use App\Models\InternetPackage;
 use App\Models\Invoice;
 use App\Models\NetworkAccount;
+use App\Models\OutageIncident;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
@@ -120,6 +121,66 @@ class Phase4AMonitoringTest extends TestCase
         app(MonitoringService::class)->observeRouter($router, $user);
 
         $this->assertStringNotContainsString('router-secret', json_encode(HealthObservation::latest()->first()->toArray()));
+    }
+
+    public function test_shared_offline_connections_create_one_incident_and_recover(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $connections = collect(range(1, 3))->map(fn () => $this->connection($tenant, $router));
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::OFFLINE->value]));
+
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $this->assertSame(1, OutageIncident::where('router_id', $router->id)->count());
+        $incident = OutageIncident::where('router_id', $router->id)->firstOrFail();
+        $this->assertSame(3, $incident->affectedConnections()->count());
+        $this->assertSame('active', $connections->first()->fresh()->status);
+        $this->assertSame('active', $connections->first()->networkAccount->fresh()->status);
+
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::ONLINE->value]));
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $this->assertSame('resolved', $incident->fresh()->status);
+        $this->assertNotNull($incident->fresh()->resolved_at);
+    }
+
+    public function test_below_threshold_does_not_create_an_incident(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        collect(range(1, 2))->each(fn () => $this->connection($tenant, $router)->update(['monitoring_state' => HealthState::OFFLINE->value]));
+
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $this->assertDatabaseCount('outage_incidents', 0);
+    }
+
+    public function test_unrelated_routers_have_separate_incidents_and_acknowledgement_is_tenant_safe(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $routerA = Router::factory()->for($tenant)->create(['name' => 'Router A']);
+        $routerB = Router::factory()->for($tenant)->create(['name' => 'Router B']);
+        foreach ([$routerA, $routerB] as $router) {
+            collect(range(1, 3))->each(fn () => $this->connection($tenant, $router)->update(['monitoring_state' => HealthState::OFFLINE->value]));
+        }
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+        $this->assertSame(2, OutageIncident::where('tenant_id', $tenant->id)->count());
+
+        $incident = OutageIncident::where('router_id', $routerA->id)->firstOrFail();
+        $this->actingAs($user)->post(route('monitoring.incidents.acknowledge', $incident))->assertRedirect();
+        $this->assertSame('acknowledged', $incident->fresh()->status);
+    }
+
+    public function test_tenant_cannot_view_another_tenant_incident(): void
+    {
+        [$tenantA, $userA] = $this->tenantWithUser('Tenant A');
+        [$tenantB] = $this->tenantWithUser('Tenant B');
+        $incident = OutageIncident::factory()->for($tenantB)->create();
+
+        $this->actingAs($userA)->get(route('monitoring.incidents.show', $incident))->assertForbidden();
+        $this->actingAs($userA)->post(route('monitoring.incidents.acknowledge', $incident))->assertForbidden();
     }
 
     private function connection(Tenant $tenant, ?Router $router = null): CustomerConnection

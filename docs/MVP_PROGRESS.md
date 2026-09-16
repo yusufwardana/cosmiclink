@@ -687,3 +687,78 @@ Outage correlation: **NOT IMPLEMENTED**.
 Outage incidents: **NOT IMPLEMENTED**.
 Automatic outage notifications: **NOT IMPLEMENTED**.
 Phase 4B: **NOT STARTED**.
+
+## Phase 4B — Outage Intelligence
+
+### Architecture and correlation
+
+Phase 4B adds tenant-safe `OutageIncident` records and the
+`outage_affected_connections` evidence table. `OutageCorrelationService` runs
+after `MonitoringService` persists the normal `HealthObservation` records. It
+never runs inside `FakeMonitoringDriver`, and it never calls `NetworkDriver` or
+`NetworkOperationService`.
+
+The deterministic rules are configurable through `OUTAGE_MINIMUM_CONNECTIONS`
+(default `3`) and `OUTAGE_WINDOW_MINUTES` (default `10`). Only active,
+provisioned connections are eligible. Offline observations must belong to the
+same tenant, same router, and current observation window. One detected or
+acknowledged incident is reused per router/outage; repeated monitoring updates
+its correlation count and affected connection set rather than duplicating it.
+Different routers produce different incidents. A later outage after resolution
+may create a new incident.
+
+### Incident lifecycle and recovery
+
+The lifecycle is:
+
+```text
+detected -> acknowledged -> resolved
+```
+
+Acknowledgement records `acknowledged_at` and changes only incident state. When
+all connections attached to the active incident have a current online
+observation, the incident is marked `resolved` with `resolved_at`; affected
+connections and all historical observations remain available. The incident
+stores router, correlation count, evidence window, timestamps, and affected
+connection/customer references.
+
+### UI and tenant safety
+
+The Monitoring page now includes a compact `OUTAGE INCIDENTS` section with
+status, router, detection time, affected customer/connection counts, resolved
+time, details, and `Acknowledge Incident`. The incident detail page lists the
+affected customers and connections and explicitly states that no billing or
+network enforcement is performed. Customer 360 shows recent active/resolved
+outage incidents beside health, billing, payments, messages, and operations.
+All incident views and acknowledgement actions use existing authentication,
+policies, CSRF, and tenant ownership checks.
+
+### Phase 4B verification
+
+Automated outage coverage is **VERIFIED**. The focused monitoring suite reports
+11 tests / 38 assertions, and the complete suite reports **60 passed / 231
+assertions**. Tests cover below-threshold behavior, shared-router correlation,
+different-router separation, affected tracking, deduplication, acknowledgement,
+recovery, tenant isolation, lifecycle preservation, and no billing/network
+side effects.
+
+Browser automation with the local deterministic fake driver verified:
+
+```text
+healthy -> no incident
+3 shared-router connections offline -> exactly ONE incident
+affected customers visible -> acknowledge
+repeat check -> no duplicate
+connections online -> RESOLVED
+Customer 360 outage context -> visible
+health history -> retained
+```
+
+Fake outage intelligence: **VERIFIED**.
+
+Automatic outage notifications: **NOT IMPLEMENTED**.
+Ticketing/technicians: **NOT IMPLEMENTED**.
+Topology/network map: **NOT IMPLEMENTED**.
+Scheduler/queues/WebSockets: **NOT IMPLEMENTED**.
+Real RouterOS/SNMP/ICMP monitoring: **NOT IMPLEMENTED**.
+Phase 4C or later work: **NOT STARTED**.

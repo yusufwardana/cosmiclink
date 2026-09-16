@@ -50,4 +50,9 @@ class Router extends Model
     {
         return $this->healthObservations()->latestOfMany('observed_at');
     }
+
+    public function outageIncidents()
+    {
+        return $this->hasMany(OutageIncident::class);
+    }
 }

@@ -26,4 +26,6 @@
 @foreach($customer->messageLogs->take(5) as $message)<p>{{ $message->template }} — {{ $message->status }} — {{ $message->provider }}</p>@endforeach
 <h2>Recent Network Operations</h2>
 @include('network._logs', ['logs' => $recentLogs])
+<h2>Recent Outage Incidents</h2>
+@foreach($recentIncidents as $incident)<p><a href="{{ route('monitoring.incidents.show', $incident) }}">{{ $incident->router->name }}</a> — {{ strtoupper($incident->status) }} — {{ $incident->detected_at }}{{ $incident->resolved_at ? ' — resolved '.$incident->resolved_at : '' }}</p>@endforeach
 @endsection

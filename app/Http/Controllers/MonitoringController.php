@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CustomerConnection;
 use App\Models\HealthObservation;
+use App\Models\OutageIncident;
 use App\Models\Router;
 use App\Services\Monitoring\HealthState;
 use App\Services\Monitoring\MonitoringService;
@@ -24,8 +25,9 @@ class MonitoringController extends Controller
         $connections->each(fn (CustomerConnection $connection) => $connection->setRelation('networkHealth', $connectionHealth->get($connection->id)));
         $routerHealthSummary = $routers->groupBy(fn (Router $router) => $router->networkHealth?->health_state ?? HealthState::UNKNOWN->value);
         $connectionHealthSummary = $connections->groupBy(fn (CustomerConnection $connection) => $connection->networkHealth?->health_state ?? HealthState::UNKNOWN->value);
+        $incidents = OutageIncident::where('tenant_id', $tenantId)->with(['router', 'affectedConnections.customer'])->latest('detected_at')->limit(20)->get();
 
-        return view('monitoring.index', compact('routers', 'connections', 'routerHealthSummary', 'connectionHealthSummary'));
+        return view('monitoring.index', compact('routers', 'connections', 'routerHealthSummary', 'connectionHealthSummary', 'incidents'));
     }
 
     public function check(MonitoringService $monitoring)
@@ -80,5 +82,21 @@ class MonitoringController extends Controller
         $observations = HealthObservation::where('tenant_id', Auth::user()->tenant_id)->where('subject_type', $type)->where('subject_id', $id)->latest('observed_at')->limit(20)->get();
 
         return view('monitoring.history', compact('observations', 'type', 'id', 'subject'));
+    }
+
+    public function incident(OutageIncident $incident)
+    {
+        Gate::authorize('view', $incident);
+        $incident->load(['router', 'affectedConnections.customer']);
+
+        return view('monitoring.incident', compact('incident'));
+    }
+
+    public function acknowledge(OutageIncident $incident)
+    {
+        Gate::authorize('acknowledge', $incident);
+        $incident->update(['status' => 'acknowledged', 'acknowledged_at' => now()]);
+
+        return back()->with('status', 'Outage incident acknowledged.');
     }
 }

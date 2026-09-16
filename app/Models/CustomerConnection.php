@@ -75,4 +75,9 @@ class CustomerConnection extends Model
     {
         return $this->healthObservations()->latestOfMany('observed_at');
     }
+
+    public function outageIncidents()
+    {
+        return $this->belongsToMany(OutageIncident::class, 'outage_affected_connections');
+    }
 }

@@ -9,6 +9,9 @@
 @if(config('monitoring.simulation'))
 <h2>NETWORK HEALTH SIMULATION</h2><p>Set a simulated provider state first, then run the normal observation pipeline.</p>
 @endif
+<h2>OUTAGE INCIDENTS</h2>
+<table><tr><th>Status</th><th>Router</th><th>Detected</th><th>Affected Customers</th><th>Affected Connections</th><th>Resolved</th><th>Action</th></tr>
+@foreach($incidents as $incident)<tr><td>{{ strtoupper($incident->status) }}</td><td>{{ $incident->router->name }}</td><td>{{ $incident->detected_at }}</td><td>{{ $incident->affectedConnections->pluck('customer_id')->unique()->count() }}</td><td>{{ $incident->affectedConnections->count() }}</td><td>{{ $incident->resolved_at ?? '—' }}</td><td><a href="{{ route('monitoring.incidents.show', $incident) }}">Details</a>@if($incident->status === 'detected')<form method="post" action="{{ route('monitoring.incidents.acknowledge', $incident) }}">@csrf<button>Acknowledge Incident</button></form>@endif</td></tr>@endforeach</table>
 <h2>ROUTERS</h2>
 <table><tr><th>Router</th><th>Health</th><th>Latency</th><th>Packet Loss</th><th>Last Checked</th><th>Action</th></tr>
 @foreach($routers as $router) @php($health = $router->networkHealth)

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\HealthObservation;
 use App\Models\NetworkOperationLog;
+use App\Models\OutageIncident;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -35,9 +36,10 @@ class CustomerController extends Controller
         $customer->load(['connections.internetPackage', 'connections.router', 'connections.networkAccount', 'invoices', 'payments', 'messageLogs']);
         $health = HealthObservation::where('tenant_id', Auth::user()->tenant_id)->where('subject_type', 'connection')->whereIn('subject_id', $customer->connections->pluck('id'))->latest('observed_at')->get()->unique('subject_id')->keyBy('subject_id');
         $customer->connections->each(fn ($connection) => $connection->setRelation('networkHealth', $health->get($connection->id)));
+        $recentIncidents = OutageIncident::where('tenant_id', Auth::user()->tenant_id)->whereIn('status', ['detected', 'acknowledged', 'resolved'])->whereHas('affectedConnections', fn ($query) => $query->whereIn('customer_connections.id', $customer->connections->pluck('id')))->with('router')->latest('detected_at')->limit(5)->get();
         $recentLogs = NetworkOperationLog::where('tenant_id', Auth::user()->tenant_id)->whereIn('customer_connection_id', $customer->connections->pluck('id'))->with('customerConnection')->latest('created_at')->limit(10)->get();
 
-        return view('customers.show', compact('customer', 'recentLogs'));
+        return view('customers.show', compact('customer', 'recentLogs', 'recentIncidents'));
     }
 
     public function edit(Customer $customer)

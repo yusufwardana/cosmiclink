@@ -11,7 +11,7 @@ use Illuminate\Support\Collection;
 
 class MonitoringService
 {
-    public function __construct(private readonly MonitoringDriver $driver) {}
+    public function __construct(private readonly MonitoringDriver $driver, private readonly OutageCorrelationService $correlation) {}
 
     public function observeRouter(Router $router, User $user): HealthObservation
     {
@@ -33,6 +33,7 @@ class MonitoringService
         $observations = collect();
         Router::where('tenant_id', $tenantId)->get()->each(fn (Router $router) => $observations->push($this->observeRouter($router, $user)));
         CustomerConnection::where('tenant_id', $tenantId)->whereNotNull('provisioned_at')->with(['router', 'customer'])->get()->each(fn (CustomerConnection $connection) => $observations->push($this->observeConnection($connection, $user)));
+        $this->correlation->correlate($tenantId, $user);
 
         return $observations;
     }
