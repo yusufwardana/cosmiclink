@@ -7,6 +7,7 @@ use App\Models\CustomerConnection;
 use App\Models\HealthObservation;
 use App\Models\InternetPackage;
 use App\Models\Invoice;
+use App\Models\MessageLog;
 use App\Models\NetworkAccount;
 use App\Models\OutageIncident;
 use App\Models\Router;
@@ -183,9 +184,64 @@ class Phase4AMonitoringTest extends TestCase
         $this->actingAs($userA)->post(route('monitoring.incidents.acknowledge', $incident))->assertForbidden();
     }
 
-    private function connection(Tenant $tenant, ?Router $router = null): CustomerConnection
+    public function test_incident_notifications_target_each_affected_customer_once_and_resolution_notifies_once(): void
     {
-        $customer = Customer::factory()->for($tenant)->create();
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $connections = collect(range(1, 3))->map(fn () => $this->connection($tenant, $router));
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::OFFLINE->value]));
+
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $incident = OutageIncident::where('router_id', $router->id)->firstOrFail();
+        $this->assertSame(3, MessageLog::where('outage_incident_id', $incident->id)->where('template', 'outage_detected')->count());
+        $this->assertSame(3, MessageLog::where('outage_incident_id', $incident->id)->where('template', 'outage_detected')->where('status', 'sent')->count());
+
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::ONLINE->value]));
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $this->assertSame(3, MessageLog::where('outage_incident_id', $incident->id)->where('template', 'outage_resolved')->count());
+    }
+
+    public function test_invalid_phone_and_provider_failure_are_audited_without_changing_incident_truth(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $connections = collect(range(1, 3))->map(fn ($index) => $this->connection($tenant, $router, ['phone' => $index === 1 ? null : ($index === 2 ? '081299999999' : '081234567890')]));
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::OFFLINE->value]));
+
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $incident = OutageIncident::where('router_id', $router->id)->firstOrFail();
+        $this->assertSame('detected', $incident->status);
+        $this->assertDatabaseHas('message_logs', ['outage_incident_id' => $incident->id, 'template' => 'outage_detected', 'status' => 'skipped']);
+        $this->assertDatabaseHas('message_logs', ['outage_incident_id' => $incident->id, 'template' => 'outage_detected', 'status' => 'failed']);
+        $this->assertSame('active', $connections->first()->fresh()->status);
+        $this->assertSame('active', $connections->first()->networkAccount->fresh()->status);
+    }
+
+    public function test_resolved_incident_allows_a_later_independent_outage(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $connections = collect(range(1, 3))->map(fn () => $this->connection($tenant, $router));
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::OFFLINE->value]));
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::ONLINE->value]));
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $connections->each(fn (CustomerConnection $connection) => $connection->update(['monitoring_state' => HealthState::OFFLINE->value]));
+        app(MonitoringService::class)->observeTenant($tenant->id, $user);
+
+        $this->assertSame(2, OutageIncident::where('router_id', $router->id)->count());
+        $this->assertSame(6, MessageLog::where('template', 'outage_detected')->count());
+    }
+
+    private function connection(Tenant $tenant, ?Router $router = null, array $customerAttributes = []): CustomerConnection
+    {
+        $customer = Customer::factory()->for($tenant)->create($customerAttributes + ['phone' => '081234567890']);
         $package = InternetPackage::factory()->for($tenant)->create();
         $router ??= Router::factory()->for($tenant)->create();
         $account = NetworkAccount::create(['tenant_id' => $tenant->id, 'router_id' => $router->id, 'username' => $customer->customer_code, 'profile' => $package->network_profile, 'status' => 'active']);

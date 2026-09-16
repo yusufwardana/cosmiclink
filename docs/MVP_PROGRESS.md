@@ -762,3 +762,74 @@ Topology/network map: **NOT IMPLEMENTED**.
 Scheduler/queues/WebSockets: **NOT IMPLEMENTED**.
 Real RouterOS/SNMP/ICMP monitoring: **NOT IMPLEMENTED**.
 Phase 4C or later work: **NOT STARTED**.
+
+## Phase 4C — Outage Response Automation
+
+### Notification architecture
+
+Phase 4C sends customer communication only from actual correlated
+`OutageIncident` transitions. `SendOutageIncidentNotification` targets the
+incident's persisted affected connections and delegates delivery to the existing
+`MessagingProvider` through `SendCustomerMessage`. `FakeMessagingProvider`
+remains visibly simulated; no real WhatsApp integration was added.
+
+The `message_logs.outage_incident_id` foreign key links communication audit rows
+to their incident. Templates are `outage_detected` and `outage_resolved`. An
+outage notification is therefore one incident event fan-out, not one message per
+offline observation.
+
+### Idempotency and failure handling
+
+Each customer/event uses a durable idempotency key:
+
+```text
+outage:{incident_id}:{customer_id}:detected|resolved
+```
+
+Repeated monitoring reuses the incident and finds existing keys, preventing
+duplicate detection or recovery messages. Missing/invalid phones produce
+`skipped` MessageLog rows; provider failures produce `failed` rows. Neither
+result changes incident state, invoice/payment truth, connection lifecycle,
+NetworkAccount state, or network operation logs.
+
+### UI and Customer 360
+
+Incident detail now shows per-affected-customer communication status for detected
+and resolved messages. Customer 360 retains the recent outage incident context
+and existing message history, including outage templates and fake provider
+status. All incident and message queries remain tenant-scoped.
+
+### Verification and limitations
+
+Phase 4C automated coverage is **VERIFIED**: full regression reports **63 passed
+/ 241 assertions**; focused monitoring/outage coverage includes detection fan-out,
+one message per affected customer, durable duplicate prevention, invalid phone,
+provider failure, resolution fan-out, later independent outage, tenant isolation,
+unrelated-router separation, and observational safety.
+
+Browser automation verified:
+
+```text
+healthy -> no incident
+3 connections offline -> ONE incident
+outage_detected sent to affected customers
+repeat monitoring -> no duplicate messages
+connections recovered -> incident RESOLVED
+outage_resolved sent
+Customer 360 -> outage communication history visible
+```
+
+Fake outage response: **VERIFIED**.
+
+Automatic outage notifications use only `FakeMessagingProvider` in this phase.
+Real WhatsApp, real monitoring, queues, scheduler, ticketing, technicians,
+inventory, topology, AI, and later phases remain **NOT IMPLEMENTED**.
+
+Browser evidence used the local `artisan serve` runtime with Playwright Chromium
+for Testing 143.0.7499.4. The Monitoring UI showed healthy baseline with no
+incident, then three same-router connections were set offline. One incident was
+created; its detail page showed all three affected customers and `sent` detected
+communication status. The operator acknowledged it, repeated monitoring without
+creating another incident, restored all three connections, and ran monitoring
+again. The incident became `RESOLVED`, all three recovery messages were `sent`,
+and Customer 360 displayed the outage message history and resolved incident.

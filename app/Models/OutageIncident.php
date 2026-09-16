@@ -27,4 +27,9 @@ class OutageIncident extends Model
     {
         return $this->belongsToMany(CustomerConnection::class, 'outage_affected_connections')->withPivot('customer_id')->withTimestamps();
     }
+
+    public function messageLogs()
+    {
+        return $this->hasMany(MessageLog::class);
+    }
 }

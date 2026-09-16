@@ -87,7 +87,7 @@ class MonitoringController extends Controller
     public function incident(OutageIncident $incident)
     {
         Gate::authorize('view', $incident);
-        $incident->load(['router', 'affectedConnections.customer']);
+        $incident->load(['router', 'affectedConnections.customer', 'messageLogs']);
 
         return view('monitoring.incident', compact('incident'));
     }
