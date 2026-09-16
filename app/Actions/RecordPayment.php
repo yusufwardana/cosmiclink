@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 class RecordPayment
 {
-    public function __construct(private readonly ReactivateCustomerConnection $reactivate) {}
+    public function __construct(private readonly ReactivateCustomerConnection $reactivate, private readonly SendCustomerMessage $messenger) {}
 
     public function handle(Invoice $invoice, int $amount, string $method, string $reference, User $user): Payment
     {
@@ -29,10 +29,13 @@ class RecordPayment
             return $payment;
         });
         $invoice->refresh();
+        if ($invoice->customer->tenant_id === $user->tenant_id) {
+            $this->messenger->handle($invoice->customer, 'payment_received', ['amount' => $amount], $user, $invoice, $invoice->connection);
+        }
         if ($invoice->status === 'paid' && $invoice->connection->status === 'suspended' && $invoice->connection->suspension_reason === 'billing_overdue' && ! Invoice::where('customer_connection_id', $invoice->customer_connection_id)->whereIn('status', ['unpaid', 'overdue'])->where('paid_amount', '<', DB::raw('total'))->exists()) {
             $this->reactivate->handle($invoice->connection, $user, $invoice->id);
         }
 
-return $payment;
+        return $payment;
     }
 }

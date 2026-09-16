@@ -8,6 +8,7 @@ use App\Models\InternetPackage;
 use App\Models\Invoice;
 use App\Models\NetworkAccount;
 use App\Models\Payment;
+use App\Models\PaymentRequest;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
@@ -34,8 +35,12 @@ class DatabaseSeeder extends Seeder
             ['name' => 'Home 20', 'code' => 'HOME-20', 'download_mbps' => 20, 'upload_mbps' => 20, 'monthly_price' => 150000, 'network_profile' => 'HOME-20M'],
             ['name' => 'Home 50', 'code' => 'HOME-50', 'download_mbps' => 50, 'upload_mbps' => 50, 'monthly_price' => 250000, 'network_profile' => 'HOME-50M'],
         ])->map(fn (array $data) => InternetPackage::create($data + ['tenant_id' => $tenant->id, 'status' => 'active']));
-        foreach (['Budi Santoso', 'Siti Rahma', 'Andi Pratama'] as $index => $name) {
-            $customer = Customer::create(['tenant_id' => $tenant->id, 'name' => $name, 'status' => 'active']);
+        foreach ([
+            ['name' => 'Budi Santoso', 'phone' => '081234567890'],
+            ['name' => 'Siti Rahma', 'phone' => '081298765432'],
+            ['name' => 'Andi Pratama', 'phone' => '081287654321'],
+        ] as $index => $demoCustomer) {
+            $customer = Customer::create(['tenant_id' => $tenant->id, 'name' => $demoCustomer['name'], 'phone' => $demoCustomer['phone'], 'status' => 'active']);
             NetworkAccount::create([
                 'tenant_id' => $tenant->id,
                 'router_id' => $router->id,
@@ -48,6 +53,9 @@ class DatabaseSeeder extends Seeder
             $invoice->items()->create(['customer_connection_id' => $connection->id, 'internet_package_id' => $packages->first()->id, 'description' => 'Home 10 snapshot', 'quantity' => 1, 'unit_price' => 100000, 'amount' => 100000]);
             if ($index === 0) {
                 Payment::create(['tenant_id' => $tenant->id, 'invoice_id' => $invoice->id, 'customer_id' => $customer->id, 'payment_reference' => 'SEED-PAY-001', 'amount' => 100000, 'method' => 'manual', 'paid_at' => now(), 'status' => 'confirmed']);
+            }
+            if ($index === 1) {
+                PaymentRequest::firstOrCreate(['provider_reference' => 'PAY-DEMO-SEED-001'], ['tenant_id' => $tenant->id, 'invoice_id' => $invoice->id, 'customer_id' => $customer->id, 'provider' => 'fake', 'amount' => 100000, 'currency' => 'IDR', 'status' => 'pending', 'payment_url' => 'SIMULATED PAYMENT', 'qr_payload' => 'SIMULATED-PAYMENT', 'expires_at' => now()->addDay(), 'metadata' => ['simulation' => true]]);
             }
         }
     }

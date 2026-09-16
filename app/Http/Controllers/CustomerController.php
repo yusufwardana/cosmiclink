@@ -31,7 +31,7 @@ class CustomerController extends Controller
     public function show(Customer $customer)
     {
         Gate::authorize('view', $customer);
-        $customer->load(['connections.internetPackage', 'connections.router', 'connections.networkAccount']);
+        $customer->load(['connections.internetPackage', 'connections.router', 'connections.networkAccount', 'invoices', 'payments', 'messageLogs']);
         $recentLogs = NetworkOperationLog::where('tenant_id', Auth::user()->tenant_id)->whereIn('customer_connection_id', $customer->connections->pluck('id'))->with('customerConnection')->latest('created_at')->limit(10)->get();
 
         return view('customers.show', compact('customer', 'recentLogs'));

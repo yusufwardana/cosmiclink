@@ -60,4 +60,9 @@ class CustomerConnection extends Model
     {
         return $this->hasMany(NetworkOperationLog::class);
     }
+
+    public function messageLogs()
+    {
+        return $this->hasMany(MessageLog::class);
+    }
 }

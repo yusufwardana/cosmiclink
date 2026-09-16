@@ -56,6 +56,21 @@ class Tenant extends Model
         return $this->hasMany(BillingAutomationAttempt::class);
     }
 
+    public function paymentRequests()
+    {
+        return $this->hasMany(PaymentRequest::class);
+    }
+
+    public function paymentProviderEvents()
+    {
+        return $this->hasMany(PaymentProviderEvent::class);
+    }
+
+    public function messageLogs()
+    {
+        return $this->hasMany(MessageLog::class);
+    }
+
     public function operationLogs()
     {
         return $this->hasMany(NetworkOperationLog::class);

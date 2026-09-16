@@ -38,4 +38,14 @@ class Customer extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    public function paymentRequests()
+    {
+        return $this->hasMany(PaymentRequest::class);
+    }
+
+    public function messageLogs()
+    {
+        return $this->hasMany(MessageLog::class);
+    }
 }

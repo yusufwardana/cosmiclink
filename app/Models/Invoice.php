@@ -56,6 +56,11 @@ class Invoice extends Model
         return $this->hasMany(BillingAutomationAttempt::class);
     }
 
+    public function paymentRequests()
+    {
+        return $this->hasMany(PaymentRequest::class);
+    }
+
     public function outstanding(): int
     {
         return max(0, $this->total - $this->paid_amount);

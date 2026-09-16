@@ -405,6 +405,12 @@ tenant isolation, and financial/network separation were not weakened. Manual
 browser success and failure/retry verification remain **NOT TESTED** until the
 operator completes them in a real browser.
 
+The operator subsequently manually verified the Phase 2.1 FakeNetworkDriver
+workflow in the browser: overdue invoice, successful `DISABLE_PPPOE`, suspended
+connection, manual payment `MANUAL-ANDI-001`, paid invoice, successful
+`ENABLE_PPPOE`, and active connection with cleared suspension reason. This does
+not verify real RouterOS hardware.
+
 ### Limitations and out of scope
 
 - `FakeNetworkDriver` is the only network implementation; real RouterOS and
@@ -416,3 +422,204 @@ operator completes them in a real browser.
   composite cross-table foreign keys.
 - No queue or distributed idempotency key exists yet; future external operations
   will need durable reconciliation for lost responses.
+
+## Phase 3 — Payment Automation + WhatsApp-First Operations
+
+### Provider architecture
+
+Phase 3 adds provider-neutral contracts selected through configuration:
+
+```text
+Billing -> PaymentGateway -> FakePaymentGateway
+Messaging -> MessagingProvider -> FakeMessagingProvider
+```
+
+The default development configuration is:
+
+```dotenv
+PAYMENT_GATEWAY=fake
+MESSAGING_PROVIDER=fake
+```
+
+Unknown providers fail closed in the service container. No provider credentials,
+real payment gateway, QRIS transaction, or WhatsApp vendor integration exists.
+
+### Payment requests and event processing
+
+`PaymentRequest` represents a provider-independent pending payment request with
+integer IDR amount, invoice/customer references, provider reference, status,
+expiry, simulated payment representation, and metadata. The fake gateway reuses
+an existing pending request for the same invoice and produces deterministic
+development events.
+
+`ProcessPaymentProviderEvent` validates provider/reference, tenant ownership,
+amount, currency, event identity, and event type before delegating settlement to
+the existing `RecordPayment` action. It never updates invoices directly and never
+calls the network driver. Duplicate provider events are idempotent, unknown
+references and amount mismatches fail safely, and provider payload persistence is
+sanitized. `PaymentProviderEvent` provides durable event idempotency/audit storage.
+
+The UI labels the fake request and payment representation **SIMULATED PAYMENT**;
+it is not a real QRIS payload or payable transaction.
+
+### Messaging and phone normalization
+
+`MessagingProvider`, `FakeMessagingProvider`, `MessageLog`, and
+`PhoneNormalizer` provide a provider-independent WhatsApp-style notification
+foundation. Indonesian local numbers such as `081234567890` normalize to
+`+6281234567890` in one boundary. Invalid numbers produce a safe skipped message
+log; the fake provider can deterministically fail delivery for development tests.
+
+Provider-neutral templates currently include:
+
+```text
+invoice_created
+payment_reminder
+payment_received
+service_suspended
+service_reactivated
+```
+
+Invoice generation, payment settlement, successful isolation, and successful
+reactivation create message attempts after their primary state transitions.
+Message failures are recorded separately and do not roll back financial or
+network state. The Messages page is tenant-scoped and visibly identifies fake
+delivery as simulation mode.
+
+### Phase 3 verification
+
+- Phase 2.1 baseline/freeze: **VERIFIED**, checkpoint commit
+  `0b9984f` (`CosmicLink Phase 2.1 verified billing automation baseline`).
+- Phase 2.1 manual billing workflow: **VERIFIED** by operator for
+  FakeNetworkDriver; real RouterOS remains NOT IMPLEMENTED.
+- Phase 3 focused provider/messaging tests: **VERIFIED**, 8 tests / 21 assertions.
+- Complete suite after Phase 3 changes: recorded by the final verification run.
+- Payment request, event, message, and tenant checks are automated; no provider
+  secret is rendered or stored in sanitized event payloads.
+- No real payment, QRIS, WhatsApp, RouterOS, monitoring, outage, or Phase 4
+  integration is implemented.
+
+### Phase 3 demo workflow
+
+After a fresh seed, Siti Rahma has an unpaid invoice and a pending fake payment
+request with no provider event. The operator can open the request, confirm the
+SIMULATED PAYMENT label, invoke the simulated success action, and observe the
+provider event, Payment, paid invoice, existing reactivation behavior where
+applicable, and message history. Seed data does not pre-create the settlement
+event or payment for this scenario.
+
+### Phase 3 limitations and out of scope
+
+- `FakePaymentGateway` and `FakeMessagingProvider` are the only implementations;
+  real providers and credentials are **NOT IMPLEMENTED**.
+- No public webhook endpoint or cryptographic provider signature verifier is added;
+  the provider-independent processing action is the safe internal boundary for
+  the fake simulation path.
+- No scheduler, queue, retry worker, template designer, QRIS, WhatsApp vendor,
+  payment gateway, RouterOS, monitoring, outage intelligence, tickets,
+  technicians, inventory, portal, AI, or Phase 4 work exists.
+
+## Phase 3.1 — Reminder Automation + End-to-End USP Verification
+
+### Reminder architecture and eligibility
+
+`SendPaymentReminder` is the dedicated reminder action. It validates tenant
+ownership, requires an unpaid or overdue invoice with an outstanding balance, and
+does nothing for paid or cancelled invoices. It delegates recipient normalization,
+template rendering, provider delivery, and MessageLog persistence to the existing
+messaging boundary. No controller calls `FakeMessagingProvider` directly.
+
+Reminder idempotency is durable: one `payment_reminder` MessageLog is allowed per
+invoice, enforced by a unique `message_logs.idempotency_key` containing tenant,
+invoice, and template. A repeated manual reminder action returns the existing sent,
+skipped, or failed attempt rather than sending uncontrolled duplicate reminders.
+Missing or invalid phone numbers create an auditable `skipped` MessageLog with
+`INVALID_PHONE`; provider failure creates `failed`. Neither result mutates invoice,
+payment, connection, or NetworkAccount state. Bulk reminders are intentionally
+omitted for this phase; manual invocation is sufficient and no scheduler or queue
+worker is introduced.
+
+### Complete fake-provider chains
+
+The combined regression tests now verify:
+
+```text
+Overdue
+  -> ProcessOverdueBilling
+  -> DISABLE_PPPOE
+  -> billing_overdue suspension
+  -> service_suspended MessageLog
+
+PaymentRequest
+  -> FakePaymentGateway success event
+  -> ProcessPaymentProviderEvent
+  -> RecordPayment
+  -> Invoice PAID
+  -> ReactivateCustomerConnection
+  -> ENABLE_PPPOE
+  -> payment_received + service_reactivated MessageLog
+```
+
+Financial and network state remain authoritative over messaging delivery. A fake
+messaging failure is recorded separately and cannot roll back a payment or network
+transition.
+
+### Customer 360 and UI
+
+Customer detail now includes compact billing, recent payments, and recent message
+sections alongside connections and connection-traced network operations. Invoice
+detail provides `Send Payment Reminder`, simulated payment-request generation,
+manual payment entry, payment request history, payment history, and billing
+automation history. The Messages page is tenant-scoped and visibly marked
+`SIMULATION MODE`.
+
+### Demo and manual verification instructions
+
+After `php artisan migrate:fresh --seed`, Siti Rahma has an unpaid invoice with a
+valid Indonesian phone, a pending `PAY-DEMO-SEED-001` fake payment request, no
+provider event, and no payment. The operator can manually verify:
+
+```text
+Billing / Invoices -> Siti invoice -> Send Payment Reminder
+  -> payment_reminder MessageLog / sent
+
+Invoice -> Generate Simulated Payment Request
+  -> SIMULATED PAYMENT -> Simulate Successful Payment
+  -> provider event -> Payment -> Invoice PAID
+
+Customers -> Siti Rahma
+  -> Billing / Payments / Messages / Network Operations
+```
+
+For the combined overdue-to-reactivation workflow, use the existing Andi fixture:
+the operator can enforce overdue isolation, inspect the real suspend attempt and
+`DISABLE_PPPOE`, record a full payment, then inspect the real reactivation attempt,
+`ENABLE_PPPOE`, `payment_received`, and `service_reactivated` records. These are
+manual browser instructions; this agent run did not claim browser execution.
+
+### Phase 3.1 verification and limitations
+
+- Phase 2.1 manual FakeNetworkDriver workflow remains **VERIFIED** by the operator.
+- Phase 3.1 focused automation tests: **VERIFIED**, 15 tests / 49 assertions.
+- The full suite currently reports 49 tests / 192 assertions.
+- Public payment webhook: **NOT IMPLEMENTED**.
+- Signature verification and real provider authenticity: **NOT IMPLEMENTED**.
+- Real WhatsApp, QRIS, payment gateways, RouterOS, monitoring, and Phase 4:
+  **NOT IMPLEMENTED**.
+- Browser/runtime verification: **VERIFIED** with Playwright MCP and Chromium for
+  Testing 143.0.7499.4 (`playwright-core` 1.57.0; Chromium revision 1200).
+- Siti Rahma browser evidence: valid phone, unpaid invoice, pending
+  `PAY-DEMO-SEED-001`, `payment_reminder` sent, repeated reminder returned the
+  existing durable attempt, simulated payment produced a paid PaymentRequest,
+  PaymentProviderEvent, exactly one Payment, PAID invoice, zero outstanding, and
+  `payment_received` sent.
+- Andi Pratama browser evidence: overdue/active precondition, Smart Auto-Isolation,
+  successful `DISABLE_PPPOE`, `service_suspended` sent, full payment, automatic
+  reactivation, successful `ENABLE_PPPOE`, `service_reactivated` sent, and final
+  active connection/network account state.
+- Customer 360 browser evidence: connections, billing, recent payments, recent
+  messages, and recent network operations rendered for Siti without visible
+  cross-customer leakage.
+- Final regression after browser verification: **49 passed / 193 assertions**.
+- Manual browser verification: **VERIFIED**; all required Phase 3.1 browser flows
+  passed. Real providers and integrations remain **NOT IMPLEMENTED**.

@@ -10,7 +10,7 @@ use App\Services\Network\NetworkOperationService;
 
 class SuspendCustomerConnection
 {
-    public function __construct(private readonly NetworkOperationService $operations) {}
+    public function __construct(private readonly NetworkOperationService $operations, private readonly SendCustomerMessage $messenger) {}
 
     public function handle(CustomerConnection $connection, ?Invoice $invoice, User $user): BillingAutomationAttempt
     {
@@ -19,6 +19,9 @@ class SuspendCustomerConnection
         if ($result->successful) {
             $connection->update(['status' => 'suspended', 'suspended_at' => now(), 'suspension_reason' => 'billing_overdue']);
             $attempt->update(['status' => 'success', 'completed_at' => now()]);
+            if ($connection->customer->tenant_id === $user->tenant_id) {
+                $this->messenger->handle($connection->customer, 'service_suspended', [], $user, $invoice, $connection);
+            }
         } else {
             $connection->update(['metadata' => array_merge($connection->metadata ?? [], ['last_billing_automation_status' => 'failed'])]);
             $attempt->update(['status' => 'failed', 'completed_at' => now(), 'failure_code' => $result->errorCode, 'failure_message' => $result->message]);
