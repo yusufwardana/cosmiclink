@@ -1,0 +1,1 @@
+<table><tr><th>Operation</th><th>Connection</th><th>Target</th><th>Status</th><th>Time</th></tr>@foreach($logs as $log)<tr><td>{{ $log->operation }}</td><td>{{ $log->customerConnection?->connection_code ?? '—' }}</td><td>{{ $log->target }}</td><td>{{ $log->status }}</td><td>{{ $log->created_at }}</td></tr>@endforeach</table>

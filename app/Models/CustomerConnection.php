@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class CustomerConnection extends Model
+{
+    use HasFactory;
+
+    protected $fillable = ['tenant_id', 'customer_id', 'internet_package_id', 'router_id', 'network_account_id', 'status', 'provisioned_at', 'suspended_at', 'failed_at', 'failure_code', 'failure_message', 'metadata'];
+
+    protected $casts = ['provisioned_at' => 'datetime', 'suspended_at' => 'datetime', 'failed_at' => 'datetime', 'metadata' => 'array'];
+
+    protected static function booted(): void
+    {
+        static::created(function (self $connection) {
+            $connection->connection_code = 'CON'.str_pad((string) $connection->id, 6, '0', STR_PAD_LEFT);
+            $connection->saveQuietly();
+        });
+    }
+
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function internetPackage()
+    {
+        return $this->belongsTo(InternetPackage::class);
+    }
+
+    public function router()
+    {
+        return $this->belongsTo(Router::class);
+    }
+
+    public function networkAccount()
+    {
+        return $this->belongsTo(NetworkAccount::class);
+    }
+}

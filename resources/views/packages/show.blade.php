@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('content')<h1>{{ $package->name }}</h1><p>{{ $package->code }} — {{ $package->download_mbps }}/{{ $package->upload_mbps }} Mbps — Rp{{ number_format($package->monthly_price,0,',','.') }}</p><p>Network profile: {{ $package->network_profile }}</p><p>Status: {{ $package->status }}</p><a href="{{ route('packages.edit',$package) }}">Edit</a>@endsection

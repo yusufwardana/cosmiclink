@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('content')<h1>{{ $router->name }}</h1><p>Host: {{ $router->host }}</p><p>Status: {{ $router->status }}</p><p>Driver: {{ $router->driver }}</p><a href="{{ route('routers.edit',$router) }}">Edit</a>@endsection

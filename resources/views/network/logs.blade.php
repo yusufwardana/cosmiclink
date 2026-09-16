@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('content')<h1>Operation Logs</h1>@include('network._logs',['logs'=>$logs])@endsection
