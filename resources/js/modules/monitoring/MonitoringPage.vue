@@ -41,37 +41,36 @@ onMounted(load);
             <p class="page-header__meta">Router and connection health observations, correlated into outage incidents server-side. This console reads and simulates; Laravel owns the rules.</p>
         </div>
         <div class="page-header__aside">
-            <span v-if="simulation" class="topbar__mode">SIMULATION MODE</span>
             <button type="button" class="button button--primary button--sm" :disabled="loading" @click="run('check', '/api/v1/monitoring/check')">{{ loading ? 'Checking…' : 'Run monitoring check' }}</button>
         </div>
     </div>
 
-    <div v-if="error" class="alert alert-error" role="alert"><span class="alert__mark">!</span><span>{{ error }}</span></div>
+    <div v-if="error" class="alert alert-error" role="alert" aria-live="assertive"><span class="alert__mark">!</span><span>{{ error }}</span></div>
 
-    <div class="stat-grid">
+    <div class="stat-grid stat-grid--telemetry">
         <article class="stat-card stat-card--accent">
             <span class="stat-card__label">Routers online</span>
-            <span class="stat-card__value">{{ summary('routers', 'online') }}</span>
+            <span class="stat-card__value" :data-counter="summary('routers', 'online')">{{ summary('routers', 'online') }}</span>
             <span class="stat-card__hint">of {{ routers.length }} routers observed</span>
         </article>
         <article class="stat-card stat-card--warning">
             <span class="stat-card__label">Routers degraded</span>
-            <span class="stat-card__value">{{ summary('routers', 'degraded') }}</span>
+            <span class="stat-card__value" :data-counter="summary('routers', 'degraded')">{{ summary('routers', 'degraded') }}</span>
             <span class="stat-card__hint">{{ summary('routers', 'offline') }} offline · {{ summary('routers', 'unknown') }} unknown</span>
         </article>
         <article class="stat-card stat-card--accent">
             <span class="stat-card__label">Connections online</span>
-            <span class="stat-card__value">{{ summary('connections', 'online') }}</span>
+            <span class="stat-card__value" :data-counter="summary('connections', 'online')">{{ summary('connections', 'online') }}</span>
             <span class="stat-card__hint">{{ summary('connections', 'offline') }} offline of {{ connections.length }} observed</span>
         </article>
         <article class="stat-card stat-card--danger">
             <span class="stat-card__label">Active outages</span>
-            <span class="stat-card__value">{{ activeOutages.length }}</span>
+            <span class="stat-card__value" :data-counter="activeOutages.length">{{ activeOutages.length }}</span>
             <span class="stat-card__hint">{{ incidents.length }} incidents on record</span>
         </article>
     </div>
 
-    <section class="panel" aria-labelledby="routers-heading" style="margin-top: var(--cl-space-md)">
+    <section class="panel panel--diagnostic section-block--tight" aria-labelledby="routers-heading">
         <div class="panel__head">
             <div>
                 <p class="panel__kicker">Rack 01</p>
@@ -84,11 +83,12 @@ onMounted(load);
                 <li v-for="router in routers" :key="router.subject_id" class="rack__row">
                     <span class="rack__id">
                         <span class="rack__name">{{ router.name || 'Unnamed router' }}</span>
-                        <span class="rack__sub">{{ router.provider || 'provider unknown' }} · observed {{ stamp(router.observed_at) }}</span>
+                        <span class="rack__sub">{{ router.provider || 'provider unknown' }}</span>
                     </span>
                     <span class="ui-status-badge" :class="`ui-status-badge--${state(router.health_state)}`">{{ state(router.health_state) }}</span>
                     <span class="rack__field"><span class="rack__field-label">Latency</span><span class="rack__field-value">{{ metric(router.latency_ms, ' ms') }}</span></span>
                     <span class="rack__field"><span class="rack__field-label">Loss</span><span class="rack__field-value">{{ metric(router.packet_loss_percent, '%') }}</span></span>
+                    <span class="rack__field"><span class="rack__field-label">Last observed</span><span class="rack__field-value">{{ stamp(router.observed_at) }}</span></span>
                     <span v-if="simulation" class="rack__action">
                         <button type="button" class="button button--quiet button--sm" :disabled="busy === `router-${router.subject_id}`" @click="run(`router-${router.subject_id}`, `/api/v1/monitoring/routers/${router.subject_id}/simulation`, { state: router.health_state === 'offline' ? 'online' : 'offline' })">
                             Set {{ router.health_state === 'offline' ? 'online' : 'offline' }}
@@ -100,7 +100,7 @@ onMounted(load);
         </div>
     </section>
 
-    <section class="panel" aria-labelledby="connections-heading" style="margin-top: var(--cl-space-md)">
+    <section class="panel panel--diagnostic section-block--tight" aria-labelledby="connections-heading">
         <div class="panel__head">
             <div>
                 <p class="panel__kicker">Rack 02</p>
@@ -116,9 +116,8 @@ onMounted(load);
                         <span class="rack__sub">{{ connection.customer || 'unassigned customer' }} · {{ connection.router || 'no router' }}</span>
                     </span>
                     <span class="ui-status-badge" :class="`ui-status-badge--${state(connection.health_state)}`">{{ state(connection.health_state) }}</span>
-                    <span class="rack__field"><span class="rack__field-label">Lifecycle</span><span class="rack__field-value">{{ connection.lifecycle_status || '—' }}</span></span>
-                    <span class="rack__field"><span class="rack__field-label">Loss</span><span class="rack__field-value">{{ metric(connection.packet_loss_percent, '%') }}</span></span>
-                    <span class="rack__field"><span class="rack__field-label">Observed</span><span class="rack__field-value">{{ stamp(connection.observed_at) }}</span></span>
+                    <span class="rack__field"><span class="rack__field-label">Router</span><span class="rack__field-value">{{ connection.router || '—' }}</span></span>
+                    <span class="rack__field"><span class="rack__field-label">Last observed</span><span class="rack__field-value">{{ stamp(connection.observed_at) }}</span></span>
                     <span v-if="simulation" class="rack__action">
                         <button type="button" class="button button--quiet button--sm" :disabled="busy === `connection-${connection.subject_id}`" @click="run(`connection-${connection.subject_id}`, `/api/v1/monitoring/connections/${connection.subject_id}/simulation`, { state: connection.health_state === 'offline' ? 'online' : 'offline' })">
                             Set {{ connection.health_state === 'offline' ? 'online' : 'offline' }}
@@ -139,7 +138,7 @@ onMounted(load);
             <span class="mono">{{ activeOutages.length }} active · {{ incidents.length }} total</span>
         </div>
         <p v-if="!incidents.length" class="empty-state">No correlated incidents on record. Observations have not crossed the correlation threshold.</p>
-        <article v-for="incident in incidents" :key="incident.id" class="incident" :class="`incident--${incident.status}`" style="margin-bottom: var(--cl-space-sm)">
+        <article v-for="incident in incidents" :key="incident.id" class="incident" :class="[`incident--${incident.status}`, { 'incident--compact': !activeOutages.includes(incident) } ]">
             <div class="incident__head">
                 <span class="ui-status-badge" :class="`ui-status-badge--${incident.status}`">{{ incident.status }}</span>
                 <span class="incident__router">{{ incident.router?.name || 'Unassigned router' }}</span>
@@ -153,7 +152,7 @@ onMounted(load);
                         <time class="stage__time">{{ stamp(stage.time) }}</time>
                     </li>
                 </ol>
-                <dl class="meta-list" style="margin-top: var(--cl-space-md)">
+                <dl class="meta-list incident-facts">
                     <div><dt>Affected customers</dt><dd class="mono-value">{{ incident.affected_customers ?? 0 }}</dd></div>
                     <div><dt>Affected connections</dt><dd class="mono-value">{{ (incident.affected_connections || []).length }}</dd></div>
                     <div><dt>Correlated observations</dt><dd class="mono-value">{{ incident.correlation_count }}</dd></div>

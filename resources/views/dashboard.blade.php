@@ -1,52 +1,51 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="page-header">
+<div class="page-header page-header--command">
     <div>
-        <p class="eyebrow"><span class="eyebrow__ord">00</span><span class="eyebrow__sep">·</span>Dashboard</p>
-        <h1>Command center</h1>
-        <p class="page-header__meta">ISP operations, automated. Customer, network, billing and outage state assembled from live CosmicLink records.</p>
+        <p class="eyebrow"><span class="eyebrow__ord">00</span><span class="eyebrow__sep">//</span>Dashboard / CosmicLink Overview</p>
+        <h1>ISP operations, automated.</h1>
+        <p class="page-header__meta">Customer, network, billing and outage state assembled from live CosmicLink records.</p>
     </div>
     <div class="page-header__aside">
-        @if (config('network.simulation') || config('monitoring.simulation'))<span class="topbar__mode">SIMULATION MODE</span>@endif
         <a class="button button--quiet button--sm" href="{{ route('monitoring.index') }}">Monitoring console</a>
     </div>
 </div>
 
-<div class="stat-grid">
+<div class="stat-grid stat-grid--telemetry">
     <article class="stat-card stat-card--accent stat-card--interactive">
         <span class="stat-card__label">Customers</span>
-        <span class="stat-card__value">{{ $customerCount }}</span>
+        <span class="stat-card__value" data-counter="{{ $customerCount }}">{{ $customerCount }}</span>
         <span class="stat-card__hint">{{ $activeCustomers }} active accounts</span>
     </article>
     <article class="stat-card stat-card--accent stat-card--interactive">
-        <span class="stat-card__label">Active connections</span>
-        <span class="stat-card__value">{{ $activeConnections }}</span>
+        <span class="stat-card__label">Online</span>
+        <span class="stat-card__value" data-counter="{{ $activeConnections }}">{{ $activeConnections }}</span>
         <span class="stat-card__hint">of {{ $connectionCount }} total · {{ $failedConnections }} failed</span>
     </article>
     <article class="stat-card stat-card--warning stat-card--interactive">
         <span class="stat-card__label">Billing attention</span>
-        <span class="stat-card__value">{{ $overdueInvoices }}</span>
+        <span class="stat-card__value" data-counter="{{ $overdueInvoices }}">{{ $overdueInvoices }}</span>
         <span class="stat-card__hint">overdue · Rp{{ number_format($outstandingAmount, 0, ',', '.') }} outstanding</span>
     </article>
     <article class="stat-card stat-card--danger stat-card--interactive">
-        <span class="stat-card__label">Active outages</span>
-        <span class="stat-card__value">{{ $activeIncidentCount }}</span>
+        <span class="stat-card__label">Active incidents</span>
+        <span class="stat-card__value" data-counter="{{ $activeIncidentCount }}">{{ $activeIncidentCount }}</span>
         <span class="stat-card__hint">{{ $routerHealth['offline'] }} routers offline · {{ $routerHealth['degraded'] }} degraded</span>
     </article>
 </div>
 
 <div class="ops-grid ops-grid--split">
-    <section class="panel" aria-labelledby="fabric-heading">
+    <section class="panel panel--primary" aria-labelledby="fabric-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Network fabric // 01</p>
-                <h2 class="panel__title" id="fabric-heading">Network fabric</h2>
+                <p class="panel__kicker">Network health // 01</p>
+                <h2 class="panel__title" id="fabric-heading">Network health</h2>
             </div>
             <span class="panel__meta">{{ $onlineRouters }}/{{ $routerCount }} routers available</span>
         </div>
         <div class="panel__body panel__body--flush">
-            <figure class="apparatus">
+            <figure class="apparatus apparatus--compact">
                 <div class="apparatus__stack">
                     <div class="apparatus__node apparatus__node--core">
                         <span class="apparatus__kicker">Internet / Core uplink</span>
@@ -87,7 +86,7 @@
         </div>
     </section>
 
-    <section class="panel" aria-labelledby="health-heading">
+    <section class="panel panel--diagnostic" aria-labelledby="health-heading">
         <div class="panel__head">
             <div>
                 <p class="panel__kicker">Telemetry</p>
@@ -104,12 +103,12 @@
                     @endif
                 @endforeach
             </div>
-            <ul class="health-legend">
+            <ul class="health-legend health-legend--readout">
                 @foreach ($routerHealth as $state => $count)
                     <li><span class="health-legend__dot health-legend__dot--{{ $state }}" aria-hidden="true"></span>{{ ucfirst($state) }} <span class="health-legend__value">{{ $count }}</span></li>
                 @endforeach
             </ul>
-            <dl class="meta-list" style="margin-top: var(--cl-space-lg)">
+            <dl class="meta-list health-facts">
                 <div><dt>Last observation</dt><dd class="mono-value">{{ $latestObservationAt ?? '—' }}</dd></div>
                 <div><dt>Accounts disabled</dt><dd class="mono-value">{{ $disabledAccounts }}</dd></div>
                 <div><dt>Suspended for billing</dt><dd class="mono-value">{{ $billingSuspendedConnections }}</dd></div>
@@ -119,7 +118,7 @@
 </div>
 
 <div class="ops-grid ops-grid--split">
-    <section class="panel" aria-labelledby="outages-heading">
+    <section class="panel panel--action" aria-labelledby="outages-heading">
         <div class="panel__head">
             <div>
                 <p class="panel__kicker">Operations</p>
@@ -141,7 +140,7 @@
                     </div>
                 </article>
             @empty
-                <p class="empty-state">No active correlated outages. Observed network state is nominal.</p>
+                <p class="empty-state empty-state--nominal">No active correlated outages. Observed network state is nominal.</p>
             @endforelse
         </div>
     </section>
@@ -163,7 +162,7 @@
             <div class="billing-ops__actions">
                 <form method="post" action="{{ route('billing.overdue') }}">
                     @csrf
-                    <button type="submit" class="button--quiet">Mark overdue and enforce isolation</button>
+                    <button type="submit" class="button--danger">Mark overdue and enforce isolation</button>
                 </form>
             </div>
             <p class="console-note">Outstanding balance Rp{{ number_format($outstandingAmount, 0, ',', '.') }} across unpaid and overdue invoices.</p>
