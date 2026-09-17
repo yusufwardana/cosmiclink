@@ -34,7 +34,7 @@ class NetworkDiscoveryService
                     }
                 }
             }
-            NetworkDiscoveryAudit::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user->id, 'action' => 'DISCOVERY', 'details' => ['status' => $snapshot->status, 'counts' => $snapshot->summary], 'occurred_at' => now()]);
+            NetworkDiscoveryAudit::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user->id, 'action' => 'DISCOVERY', 'details' => $this->sanitize(['status' => $snapshot->status, 'provider' => $snapshot->provider, 'counts' => $snapshot->summary, 'device_identity' => $normalizedSnapshot['device']['name'] ?? null, 'routeros_version' => $normalizedSnapshot['device']['routeros_version'] ?? null]), 'occurred_at' => now()]);
 
             return $snapshot;
         });
@@ -48,7 +48,7 @@ class NetworkDiscoveryService
     private function sanitize(array $data): array
     {
         foreach ($data as $k => $v) {
-            if (in_array(strtolower((string) $k), ['password', 'secret', 'token', 'credentials'], true)) {
+            if (in_array(strtolower((string) $k), ['password', 'pass', 'secret', 'token', 'authorization', 'credential', 'credentials'], true)) {
                 unset($data[$k]);
             } elseif (is_array($v)) {
                 $data[$k] = $this->sanitize($v);

@@ -31,6 +31,28 @@ class GoNetworkDiscoveryClientTest extends TestCase
         $this->assertArrayNotHasKey('password', $result->data['snapshot']['accounts'][0]);
     }
 
+    public function test_routeros_credentials_are_decrypted_only_for_the_server_to_server_request_and_never_returned(): void
+    {
+        config()->set('network.go.url', 'http://network-engine.test');
+        config()->set('network.go.token', 'shared-test-token');
+        config()->set('network.discovery_provider', 'routeros');
+        config()->set('network.routeros', ['transport' => 'api_ssl', 'connect_timeout_seconds' => 3, 'read_timeout_seconds' => 5, 'insecure_tls' => false]);
+        $router = Router::factory()->for(Tenant::factory())->make(['id' => 42, 'tenant_id' => 7, 'host' => 'router.test', 'api_port' => 8729, 'username' => 'readonly']);
+        $router->setPassword('router-test-password');
+        Http::fake(function (Request $request) {
+            $this->assertSame(['tenant_ref' => '7', 'router_ref' => '42', 'connection' => ['host' => 'router.test', 'port' => 8729, 'username' => 'readonly', 'password' => 'router-test-password', 'transport' => 'api_ssl', 'connect_timeout_seconds' => 3, 'read_timeout_seconds' => 5, 'insecure_tls' => false]], $request->data());
+
+            return Http::response(['success' => true, 'provider' => 'routeros', 'router_ref' => '42', 'discovered_at' => '2026-09-17T00:00:00Z', 'code' => 'DISCOVERY_COMPLETE', 'message' => 'Read-only RouterOS discovery completed', 'snapshot' => ['accounts' => [['username' => 'alice', 'pass' => 'never-return', 'authorization' => 'never-return']], 'profiles' => [], 'address_pools' => [], 'queues' => []]]);
+        });
+
+        $result = app(GoNetworkDiscoveryClient::class)->discover($router);
+
+        $this->assertTrue($result->successful);
+        $this->assertArrayNotHasKey('pass', $result->data['snapshot']['accounts'][0]);
+        $this->assertArrayNotHasKey('authorization', $result->data['snapshot']['accounts'][0]);
+        $this->assertStringNotContainsString('router-test-password', json_encode($result->data));
+    }
+
     public function test_it_maps_malformed_and_failed_responses_safely(): void
     {
         config()->set('network.go.url', 'http://network-engine.test');

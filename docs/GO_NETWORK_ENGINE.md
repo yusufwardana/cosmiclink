@@ -90,6 +90,10 @@ Mutation results are held in a mutex-protected, in-memory idempotency map keyed 
 - No gRPC, telemetry, websockets, topology, inventory, or technician workflow is included.
 - The idempotency cache is development-foundation only and must be replaced or backed by durable shared storage before horizontally scaled production execution.
 
-## Phase 6C discovery limitation
+## Phase 6C/6D discovery
 
-`FakeDiscoveryProvider` is deterministic simulated data only. No RouterOS/MikroTik connection, API, REST request, queue/profile mutation, OLT, AP, CPE, SNMP, ICMP, agent, or private-LAN access is implemented. See `docs/SAFE_ISP_MIGRATION.md` for the explicit read-only adoption boundary.
+Discovery selection is independent from `NETWORK_DRIVER`: `NETWORK_DISCOVERY_PROVIDER=fake|routeros`. The Phase 6B mutation provider remains `FakeProvider`; selecting RouterOS discovery never changes `NetworkProvider` or enables a Phase 6B mutation route.
+
+For `fake`, the request remains tenant/router context only. For `routeros`, Laravel adds an in-memory `connection` object to the authenticated server-to-server request, containing host, port, username, decrypted password, API/API-SSL transport, and explicit timeouts. It is not logged, returned, or persisted. Go rejects unknown JSON fields and logs only tenant/router/provider/result references.
+
+`RouterOSDiscoveryProvider` is a Phase 6D read-only integration using the RouterOS binary API/API-SSL through `github.com/go-routeros/routeros/v3` v3.0.1 (MIT). It has a narrow transport abstraction and fixed allowlist of `/system/resource/print`, `/system/identity/print`, `/ppp/profile/print`, `/ppp/secret/print`, `/ip/pool/print`, and `/queue/simple/print`. It does not expose generic RouterOS execution and implements no mutation. See `docs/SAFE_ISP_MIGRATION.md` for TLS, secret handling, errors, and hardware verification status.

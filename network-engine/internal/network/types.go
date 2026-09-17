@@ -32,8 +32,22 @@ type Provider interface {
 }
 
 type DiscoveryRequest struct {
-	TenantRef string `json:"tenant_ref"`
-	RouterRef string `json:"router_ref"`
+	TenantRef  string               `json:"tenant_ref"`
+	RouterRef  string               `json:"router_ref"`
+	Connection *DiscoveryConnection `json:"connection,omitempty"`
+}
+
+// DiscoveryConnection exists only for the authenticated Laravel-to-Go request.
+// It must never be copied into a DiscoveryResult, log event, or persisted model.
+type DiscoveryConnection struct {
+	Host                  string `json:"host"`
+	Port                  int    `json:"port"`
+	Username              string `json:"username"`
+	Password              string `json:"password"`
+	Transport             string `json:"transport"`
+	ConnectTimeoutSeconds int    `json:"connect_timeout_seconds"`
+	ReadTimeoutSeconds    int    `json:"read_timeout_seconds"`
+	InsecureTLS           bool   `json:"insecure_tls,omitempty"`
 }
 
 type DiscoveryResult struct {

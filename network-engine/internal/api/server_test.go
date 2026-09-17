@@ -92,6 +92,19 @@ func TestDiscoveryIsAuthenticatedReadOnlyAndSecretFree(t *testing.T) {
 	}
 }
 
+func TestDiscoveryCredentialsAreAcceptedOnlyInRequestAndNeverLoggedOrReturned(t *testing.T) {
+	var logs bytes.Buffer
+	server := New(provider.NewFakeProvider(), provider.NewFakeDiscoveryProvider(), testToken, slog.New(slog.NewJSONHandler(&logs, nil)))
+	body := []byte(`{"tenant_ref":"tenant-1","router_ref":"router-1","connection":{"host":"router.test","port":8728,"username":"readonly","password":"router-test-password","transport":"api","connect_timeout_seconds":1,"read_timeout_seconds":1}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/router-1", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, req)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "router-test-password") || strings.Contains(logs.String(), "router-test-password") {
+		t.Fatalf("credentials leaked: response=%s logs=%s", response.Body.String(), logs.String())
+	}
+}
+
 func TestDiscoveryRejectsInvalidRouterAndUnauthorizedRequest(t *testing.T) {
 	server := testServer()
 	body := []byte(`{"tenant_ref":"tenant-1","router_ref":"invalid"}`)

@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\CustomerConnection;
 use App\Models\DiscoveredNetworkResource;
 use App\Models\InternetPackage;
+use App\Models\NetworkDiscoveryAudit;
 use App\Models\NetworkDiscoverySnapshot;
 use App\Models\Router;
 use App\Models\Tenant;
@@ -34,6 +35,9 @@ class Phase6CNetworkDiscoveryTest extends TestCase
         $this->assertSame('DISCOVERED', $account->management_state);
         $this->assertStringNotContainsString('never-return', json_encode($account->normalized_data));
         $this->assertStringNotContainsString('never-return', json_encode($account->discoverySnapshot->snapshot));
+        $this->assertStringNotContainsString('never-return', json_encode($account->discoverySnapshot->fresh()->toArray()));
+        $this->assertStringNotContainsString('never-return', json_encode($account->fresh()->toArray()));
+        $this->assertStringNotContainsString('never-return', json_encode(NetworkDiscoveryAudit::firstOrFail()->details));
         $this->assertDatabaseCount('network_operation_logs', 0);
     }
 
@@ -104,7 +108,7 @@ class Phase6CNetworkDiscoveryTest extends TestCase
         {
             public function discover(Router $router): DiscoveryResult
             {
-                return new DiscoveryResult(true, 'Read-only discovery complete', null, ['provider' => 'fake', 'router_ref' => (string) $router->id, 'discovered_at' => '2026-09-17T00:00:00Z', 'snapshot' => ['device' => ['name' => 'CORE-01'], 'profiles' => [['external_ref' => '10m', 'name' => '10M']], 'accounts' => [['external_ref' => 'existing-user-001', 'username' => 'existing-user-001', 'profile' => '10M', 'enabled' => true, 'password' => 'never-return']], 'address_pools' => [['external_ref' => 'pppoe-pool', 'name' => 'pppoe-pool']], 'queues' => [['external_ref' => 'queue-1', 'name' => 'queue-1']]]]);
+                return new DiscoveryResult(true, 'Read-only discovery complete', null, ['provider' => 'fake', 'router_ref' => (string) $router->id, 'discovered_at' => '2026-09-17T00:00:00Z', 'snapshot' => ['device' => ['name' => 'CORE-01'], 'profiles' => [['external_ref' => '10m', 'name' => '10M']], 'accounts' => [['external_ref' => 'existing-user-001', 'username' => 'existing-user-001', 'profile' => '10M', 'enabled' => true, 'password' => 'never-return', 'pass' => 'never-return', 'authorization' => 'never-return', 'credential' => 'never-return']], 'address_pools' => [['external_ref' => 'pppoe-pool', 'name' => 'pppoe-pool']], 'queues' => [['external_ref' => 'queue-1', 'name' => 'queue-1']]]]);
             }
         });
     }

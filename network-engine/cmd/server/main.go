@@ -18,15 +18,20 @@ func main() {
 		os.Exit(1)
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	discovery, err := provider.NewDiscoveryProvider(config.DiscoveryProvider, config.AllowInsecureRouterOSTLS)
+	if err != nil {
+		slog.Error("invalid discovery provider configuration", "error", err.Error())
+		os.Exit(1)
+	}
 	server := &http.Server{
 		Addr:              config.Address,
-		Handler:           api.New(provider.NewFakeProvider(), provider.NewFakeDiscoveryProvider(), config.Token, logger).Handler(),
+		Handler:           api.New(provider.NewFakeProvider(), discovery, config.Token, logger).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	logger.Info("go network engine listening", "address", config.Address, "provider", "fake")
+	logger.Info("go network engine listening", "address", config.Address, "provider", "fake", "discovery_provider", discovery.Name())
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("go network engine stopped", "error", err.Error())
 		os.Exit(1)
