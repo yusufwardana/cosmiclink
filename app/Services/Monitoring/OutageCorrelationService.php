@@ -30,7 +30,7 @@ class OutageCorrelationService
     private function correlateRouter(Router $router): void
     {
         $connections = CustomerConnection::where('tenant_id', $router->tenant_id)->where('router_id', $router->id)->where('status', 'active')->whereNotNull('provisioned_at')->with('customer')->get();
-        $latest = HealthObservation::where('tenant_id', $router->tenant_id)->where('subject_type', 'connection')->whereIn('subject_id', $connections->pluck('id'))->where('observed_at', '>=', now()->subMinutes($this->windowMinutes))->latest('observed_at')->get()->unique('subject_id')->keyBy('subject_id');
+        $latest = HealthObservation::where('tenant_id', $router->tenant_id)->where('subject_type', 'connection')->whereIn('subject_id', $connections->pluck('id'))->where('observed_at', '>=', now()->subMinutes($this->windowMinutes))->orderByDesc('observed_at')->orderByDesc('id')->get()->unique('subject_id')->keyBy('subject_id');
         $offline = $connections->filter(fn (CustomerConnection $connection) => $latest->get($connection->id)?->health_state === HealthState::OFFLINE->value);
         $incident = OutageIncident::where('tenant_id', $router->tenant_id)->where('router_id', $router->id)->whereIn('status', ['detected', 'acknowledged'])->latest('detected_at')->first();
 

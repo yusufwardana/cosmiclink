@@ -15,7 +15,7 @@ class FakePaymentGateway implements PaymentGateway
             return $existing;
         }
 
-return PaymentRequest::create(['tenant_id' => $invoice->tenant_id, 'invoice_id' => $invoice->id, 'customer_id' => $invoice->customer_id, 'provider' => 'fake', 'provider_reference' => 'PAY-DEMO-'.str_pad((string) (PaymentRequest::count() + 1), 6, '0', STR_PAD_LEFT), 'amount' => $invoice->outstanding(), 'currency' => 'IDR', 'status' => 'pending', 'payment_url' => 'SIMULATED PAYMENT', 'qr_payload' => 'SIMULATED-PAYMENT', 'expires_at' => now()->addDay(), 'metadata' => ['simulation' => true]]);
+        return PaymentRequest::create(['tenant_id' => $invoice->tenant_id, 'invoice_id' => $invoice->id, 'customer_id' => $invoice->customer_id, 'provider' => 'fake', 'provider_reference' => 'PAY-DEMO-'.str_pad((string) (PaymentRequest::count() + 1), 6, '0', STR_PAD_LEFT), 'amount' => $invoice->outstanding(), 'currency' => 'IDR', 'status' => 'pending', 'payment_url' => 'SIMULATED PAYMENT', 'qr_payload' => 'SIMULATED-PAYMENT', 'expires_at' => now()->addDay(), 'metadata' => ['simulation' => true]]);
     }
 
     public function simulateSuccess(PaymentRequest $request): array
