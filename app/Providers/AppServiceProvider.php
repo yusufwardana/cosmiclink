@@ -23,6 +23,7 @@ use App\Services\Messaging\MessagingProvider;
 use App\Services\Monitoring\Contracts\MonitoringDriver;
 use App\Services\Monitoring\FakeMonitoringDriver;
 use App\Services\Network\FakeNetworkDriver;
+use App\Services\Network\GoNetworkDriver;
 use App\Services\Network\NetworkDriver;
 use App\Services\Payments\FakePaymentGateway;
 use App\Services\Payments\PaymentGateway;
@@ -34,11 +35,11 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(NetworkDriver::class, function ($app) {
-            if (config('network.driver') !== 'fake') {
-                throw new \RuntimeException('No real network driver is configured.');
-            }
-
-            return $app->make(FakeNetworkDriver::class);
+            return match (config('network.driver')) {
+                'fake' => $app->make(FakeNetworkDriver::class),
+                'go' => $app->make(GoNetworkDriver::class),
+                default => throw new \RuntimeException('Unsupported network driver configuration.'),
+            };
         });
         $this->app->bind(PaymentGateway::class, function ($app) {
             if (config('payments.gateway') !== 'fake') {
