@@ -79,22 +79,24 @@ const active = (link) => {
     </aside>
     <div v-if="mobileOpen" class="sidebar-backdrop" @click="close"></div>
     <header class="topbar">
-        <div class="topbar__slot">
-            <button class="menu-toggle" type="button" aria-label="Open navigation" :aria-expanded="mobileOpen ? 'true' : 'false'" @click="mobileOpen = true">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path></svg>
-            </button>
-            <div>
-                <p class="topbar__eyebrow">{{ section }}</p>
-                <p class="topbar__title">{{ title }}</p>
+        <div class="topbar__pill">
+            <div class="topbar__slot">
+                <button class="menu-toggle" type="button" aria-label="Open navigation" :aria-expanded="mobileOpen ? 'true' : 'false'" @click="mobileOpen = true">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path></svg>
+                </button>
+                <div>
+                    <p class="topbar__eyebrow">{{ section }}</p>
+                    <p class="topbar__title">{{ title }}</p>
+                </div>
             </div>
-        </div>
-        <div class="topbar__actions">
-            <span class="topbar__context">{{ tenant }}</span>
-            <span v-if="simulation" class="topbar__mode">SIMULATION MODE</span>
-            <form class="logout-form" method="post" :action="href('/logout')">
-                <input type="hidden" name="_token" :value="csrfToken">
-                <button class="button button--quiet button--sm" type="submit">Sign out</button>
-            </form>
+            <div class="topbar__actions">
+                <span class="topbar__context">{{ tenant }}</span>
+                <span v-if="simulation" class="topbar__mode">SIMULATION MODE</span>
+                <form class="logout-form" method="post" :action="href('/logout')">
+                    <input type="hidden" name="_token" :value="csrfToken">
+                    <button class="button button--quiet button--sm" type="submit">Sign out</button>
+                </form>
+            </div>
         </div>
     </header>
 </template>
