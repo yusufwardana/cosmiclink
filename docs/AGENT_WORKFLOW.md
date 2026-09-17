@@ -38,6 +38,15 @@ External RPA skills remain separate and are installed beside this library. The
 RPA catalog's `mikrotik-config-gen` skill targets RouterOS v7.x, so it is not a
 replacement for validated RouterOS v6.49.13 documentation.
 
+External design skills follow the same pattern. `hallmark`
+(<https://github.com/nutlope/hallmark>, v1.1.0, MIT) is installed at
+`.agents/skills/hallmark` and covers greenfield pages, audits, redesigns, and
+design extraction. Its `references/themes/lumen.md` is the upstream source of the
+design-token DNA that `resources/css/tokens.css` adapted in Phase 6A.2, so that
+reference is now available locally rather than only online. The skill is
+advisory: it does not override the design system, the Phase 6A.2 Cinder
+refinement, or the operations-instrument register.
+
 ## What was deliberately not done
 
 - The upstream repository was not cloned into the application.
@@ -101,3 +110,9 @@ the current development phase.
 When upstream workflow guidance changes, review the upstream files and update
 `.kilo/SUPERPOWERS_WORKFLOW.md` deliberately. Do not blindly copy upstream
 content or introduce a runtime dependency for a documentation-only workflow.
+
+Keep `skills-lock.json` free of a UTF-8 BOM. The `skills` CLI parses it with a
+bare `JSON.parse` and falls back to an empty lock on any parse error, so a BOM
+makes the next `skills add` or `skills update` silently drop every existing
+entry. Write it in the CLI's canonical form instead: two-space indent,
+alphabetically sorted keys, trailing newline, no BOM.
