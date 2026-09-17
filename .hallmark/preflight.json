@@ -1,0 +1,28 @@
+{
+  "verb": "redesign",
+  "scope": "app",
+  "mood": "aurora",
+  "genre": "editorial",
+  "design_system": "design.md",
+  "design_system_revision": "Phase 6E Futuristic Diagnostic Console",
+  "design_system_created": true,
+  "target": "whole app multi-page flow",
+  "raw_stub_views": 17,
+  "batches": [
+    "batch-0-foundation",
+    "batch-1-crud",
+    "batch-2-billing",
+    "batch-3-operations-consistency"
+  ],
+  "non_destructive": true,
+  "deleted_production_files": [],
+  "untouched_production_surface": [
+    "resources/views/welcome.blade.php",
+    "resources/js/components/AppShell.vue",
+    "resources/js/modules/monitoring/MonitoringPage.vue",
+    "resources/views/dashboard.blade.php",
+    "resources/views/monitoring/index.blade.php"
+  ],
+  "browser_automation": "not installed; manual sweep required",
+  "generated_at": "2026-09-17"
+}

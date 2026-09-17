@@ -1,0 +1,64 @@
+{
+  "scope": "app",
+  "verb": "redesign",
+  "designed_as_app": true,
+  "design_system": "design.md",
+  "genre": "editorial",
+  "mood": "aurora",
+  "theme": "Futuristic Diagnostic Console / dark-light navy telemetry",
+  "macrostructure_families": {
+    "console": "05 Workbench",
+    "lists": "13 Index-First with 11 Catalogue for packages",
+    "records": "F3 Tabular spec sheet",
+    "customer_360": "15 Split Studio",
+    "forms": "F3 spec sheet with inputs as values"
+  },
+  "batches": [
+    {
+      "name": "batch-0-foundation",
+      "result": "pass",
+      "evidence": ["design.md created", "npm run build passed", "CSS additive only"]
+    },
+    {
+      "name": "batch-1-crud",
+      "result": "pass",
+      "evidence": ["php artisan test passed", "npm run build passed", "vendor/bin/pint --test passed", "populated route renderer passed"]
+    },
+    {
+      "name": "batch-2-billing",
+      "result": "pass",
+      "evidence": ["php artisan view:cache passed", "php artisan test passed", "npm run build passed", "vendor/bin/pint --test passed"]
+    },
+    {
+      "name": "batch-3-operations-consistency",
+      "result": "pass",
+      "evidence": ["populated route renderer passed 2 tests / 33 assertions", "inline monitoring layout drift removed", "temporary renderer deleted"]
+    },
+    {
+      "name": "phase-6c-aurora-visual-refresh",
+      "result": "pass",
+      "evidence": ["Aurora tokens applied", "system sans-first hierarchy retained", "page-wide animated gradients excluded", "Vite build, Blade cache, PHPUnit, Pint and diff check passed"]
+    },
+    {
+      "name": "phase-6d-futuristic-theme-layer",
+      "result": "pass",
+      "evidence": ["dark/light semantic tokens", "functional shell theme toggle", "glass restricted to controls", "apparatus-only grid", "reduced-motion fallback", "build, Blade cache, tests and Pint passed"]
+    },
+    {
+      "name": "phase-6e-diagnostic-console-refresh",
+      "result": "in-progress",
+      "evidence": ["terminal-style panel headers", "compact metric readouts", "dashboard and monitoring register aligned", "business values remain data-bound"]
+    }
+  ],
+  "verification": {
+    "phpunit": "70 passed / 289 assertions",
+    "pint": "pass / 147 files",
+    "vite": "pass",
+    "blade_cache": "pass",
+    "browser": "manual only; playwright not installed"
+  },
+  "known_fixes": [
+    "Moved explicit routers.create route before routers resource route so /routers/create is not captured as a router id."
+  ],
+  "generated_at": "2026-09-17"
+}

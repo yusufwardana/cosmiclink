@@ -36,7 +36,7 @@ onMounted(load);
 <template>
     <div class="page-header">
         <div>
-            <p class="eyebrow"><span class="eyebrow__ord">02</span><span class="eyebrow__sep">·</span>Network observability</p>
+            <p class="eyebrow"><span class="eyebrow__ord">02</span><span class="eyebrow__sep">//</span>Network diagnostics</p>
             <h1>Monitoring console</h1>
             <p class="page-header__meta">Router and connection health observations, correlated into outage incidents server-side. This console reads and simulates; Laravel owns the rules.</p>
         </div>

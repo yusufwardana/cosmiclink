@@ -24,7 +24,7 @@
         </div>
         <div class="panel__body">
             @include('monitoring._stages', ['incident' => $incident])
-            <dl class="meta-list" style="margin-top: var(--cl-space-lg)">
+            <dl class="meta-list section-block">
                 <div><dt>Router</dt><dd>{{ $incident->router?->name ?? '—' }}</dd></div>
                 <div><dt>Detected</dt><dd class="mono-value">{{ $incident->detected_at?->format('Y-m-d H:i:s') ?? '—' }}</dd></div>
                 <div><dt>Acknowledged</dt><dd class="mono-value">{{ $incident->acknowledged_at?->format('Y-m-d H:i:s') ?? '—' }}</dd></div>
@@ -48,7 +48,7 @@
                 <div><dt>Affected customers</dt><dd class="mono-value">{{ $incident->affectedConnections->pluck('customer_id')->unique()->count() }}</dd></div>
             </dl>
             @if ($incident->status === 'detected')
-                <form method="post" action="{{ route('monitoring.incidents.acknowledge', $incident) }}" style="margin-top: var(--cl-space-md)">
+                <form method="post" action="{{ route('monitoring.incidents.acknowledge', $incident) }}" class="section-block">
                     @csrf
                     <button type="submit">Acknowledge incident</button>
                 </form>
@@ -60,7 +60,7 @@
     </section>
 </div>
 
-<section class="panel" aria-labelledby="affected-heading" style="margin-top: var(--cl-space-md)">
+<section class="panel section-block" aria-labelledby="affected-heading">
     <div class="panel__head">
         <div>
             <p class="panel__kicker">Impact</p>
@@ -89,7 +89,7 @@
                             <td>{{ $resolvedMessage }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="6">No connections are correlated with this incident.</td></tr>
+                        <tr><td colspan="6"><p class="empty-state">No connections are correlated with this incident.</p></td></tr>
                     @endforelse
                 </tbody>
             </table>

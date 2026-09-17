@@ -954,3 +954,51 @@ communication status. The operator acknowledged it, repeated monitoring without
 creating another incident, restored all three connections, and ran monitoring
 again. The incident became `RESOLVED`, all three recovery messages were `sent`,
 and Customer 360 displayed the outage message history and resolved incident.
+
+## Phase 6B — Hallmark multi-page UI redesign
+
+Phase 6B extended the Phase 6A.2 visual system across the raw Blade
+views without changing route ownership, controllers, models, policies, API
+resources, migrations, or business rules. The locked system is documented in
+the project-root `design.md`.
+
+### Design system and page families
+
+The app keeps one visual language: restrained operational instrument, tinted
+near-black Aurora-inspired cyan/teal canvas, restrained atmospheric blooms,
+system sans hierarchy, optional Instrument Serif asset reserved for brand/guest
+use, mono technical labels, hairline structure, cyan network identity,
+and warm brass editorial rules. App pages use Workbench (console), Index-First
+and Catalogue (lists), Tabular spec sheet F3 (records/forms), and one Split
+Studio diptych (Customer 360). New semantic CSS idioms are additive in
+`resources/css/app.css`: ledger cell naming, `.spec`, `.spec-form`, `.stack`,
+`.panel__foot`, `.panel__actions`, and narrow-screen optional-column rules.
+
+### Redesigned surface
+
+Batch 1: customer CRUD, package CRUD, router CRUD, and connection creation.
+Batch 2: invoice index/detail, payment ledger, and simulated payment request.
+Batch 3: network accounts, operation logs, messages, plus consistency cleanup
+on monitoring history/incident. Existing dashboard, Vue Monitoring console,
+AppShell, and monitoring mount remain behaviorally unchanged. Every raw state
+print in redesigned views now uses `ui-status-badge`; tested strings such as
+`Dashboard`, `Budi Updated`, `BUDI_OPERATION`, and the tenant-isolation
+negative case remain intact.
+
+One pre-existing route-order defect surfaced while rendering the new Router
+CTA: `/routers/create` was registered after `routers/{router}` and resolved as
+the string id `create`. The explicit create route now precedes the resource
+route; no controller or route behavior otherwise changed.
+
+### Verification
+
+Final regression: **70 passed / 289 assertions**; the temporary populated-route
+renderer covered all Batch 1–3 pages and passed **2 tests / 33 assertions**,
+then was deleted. Blade cache: **PASS**. Frontend build: **PASS** with Vite.
+Pint: **PASS — 146 files**. Browser automation is not installed in this
+workspace; browser sweep remains manual. PostgreSQL and Redis-backed tests were
+reachable.
+
+Hallmark evidence: `.hallmark/preflight.json` and `.hallmark/log.json` record
+the app-scoped redesign, locked `design.md`, the three batch gates, and the
+known manual-browser limitation.

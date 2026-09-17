@@ -4,11 +4,21 @@ import { computed, onMounted, ref } from 'vue';
 const props = defineProps({ baseUrl: String, csrfToken: String, currentRoute: String, tenant: String, operator: String, simulation: Boolean });
 
 const mobileOpen = ref(false);
+const theme = ref('dark');
 const hash = ref('');
 const initials = computed(() => (props.operator || 'OP').split(' ').filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase());
 const href = (path) => `${props.baseUrl || ''}${path}`;
 const close = () => { mobileOpen.value = false; };
-onMounted(() => { hash.value = window.location.hash; });
+const setTheme = (value) => {
+    theme.value = value;
+    document.documentElement.dataset.theme = value;
+    window.localStorage.setItem('cosmiclink-theme', value);
+};
+const toggleTheme = () => setTheme(theme.value === 'dark' ? 'light' : 'dark');
+onMounted(() => {
+    hash.value = window.location.hash;
+    theme.value = document.documentElement.dataset.theme || 'dark';
+});
 
 /* 16px stroke glyphs, inline — the shell ships no icon font. */
 const icons = {
@@ -92,6 +102,10 @@ const active = (link) => {
             <div class="topbar__actions">
                 <span class="topbar__context">{{ tenant }}</span>
                 <span v-if="simulation" class="topbar__mode">SIMULATION MODE</span>
+                <button class="theme-toggle" type="button" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'" :title="theme === 'dark' ? 'Light mode' : 'Dark mode'" @click="toggleTheme">
+                    <svg v-if="theme === 'dark'" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3.1"></circle><path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1"></path></svg>
+                    <svg v-else width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true"><path d="M13.2 10.5A5.8 5.8 0 0 1 5.5 2.8 5.8 5.8 0 1 0 13.2 10.5Z"></path></svg>
+                </button>
                 <form class="logout-form" method="post" :action="href('/logout')">
                     <input type="hidden" name="_token" :value="csrfToken">
                     <button class="button button--quiet button--sm" type="submit">Sign out</button>

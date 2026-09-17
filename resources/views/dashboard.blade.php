@@ -14,22 +14,22 @@
 </div>
 
 <div class="stat-grid">
-    <article class="stat-card stat-card--accent">
+    <article class="stat-card stat-card--accent stat-card--interactive">
         <span class="stat-card__label">Customers</span>
         <span class="stat-card__value">{{ $customerCount }}</span>
         <span class="stat-card__hint">{{ $activeCustomers }} active accounts</span>
     </article>
-    <article class="stat-card stat-card--accent">
+    <article class="stat-card stat-card--accent stat-card--interactive">
         <span class="stat-card__label">Active connections</span>
         <span class="stat-card__value">{{ $activeConnections }}</span>
         <span class="stat-card__hint">of {{ $connectionCount }} total · {{ $failedConnections }} failed</span>
     </article>
-    <article class="stat-card stat-card--warning">
+    <article class="stat-card stat-card--warning stat-card--interactive">
         <span class="stat-card__label">Billing attention</span>
         <span class="stat-card__value">{{ $overdueInvoices }}</span>
         <span class="stat-card__hint">overdue · Rp{{ number_format($outstandingAmount, 0, ',', '.') }} outstanding</span>
     </article>
-    <article class="stat-card stat-card--danger">
+    <article class="stat-card stat-card--danger stat-card--interactive">
         <span class="stat-card__label">Active outages</span>
         <span class="stat-card__value">{{ $activeIncidentCount }}</span>
         <span class="stat-card__hint">{{ $routerHealth['offline'] }} routers offline · {{ $routerHealth['degraded'] }} degraded</span>
@@ -40,7 +40,7 @@
     <section class="panel" aria-labelledby="fabric-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Apparatus 01</p>
+                <p class="panel__kicker">Network fabric // 01</p>
                 <h2 class="panel__title" id="fabric-heading">Network fabric</h2>
             </div>
             <span class="panel__meta">{{ $onlineRouters }}/{{ $routerCount }} routers available</span>
@@ -149,21 +149,23 @@
     <section class="panel" aria-labelledby="billing-ops-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Revenue</p>
+                <p class="panel__kicker">Billing operations // 02</p>
                 <h2 class="panel__title" id="billing-ops-heading">Billing operations</h2>
             </div>
             <span class="panel__meta">{{ $unpaidInvoices }} unpaid · {{ $overdueInvoices }} overdue</span>
         </div>
-        <div class="panel__body">
-            <form method="post" action="{{ route('billing.generate') }}">
+        <div class="panel__body billing-ops">
+            <form class="billing-ops__period" method="post" action="{{ route('billing.generate') }}">
                 @csrf
                 <label>Billing period<input name="period" type="month" value="{{ now()->format('Y-m') }}" required></label>
                 <button type="submit">Generate monthly invoices</button>
             </form>
-            <form method="post" action="{{ route('billing.overdue') }}">
-                @csrf
-                <button type="submit" class="button--quiet">Mark overdue and enforce isolation</button>
-            </form>
+            <div class="billing-ops__actions">
+                <form method="post" action="{{ route('billing.overdue') }}">
+                    @csrf
+                    <button type="submit" class="button--quiet">Mark overdue and enforce isolation</button>
+                </form>
+            </div>
             <p class="console-note">Outstanding balance Rp{{ number_format($outstandingAmount, 0, ',', '.') }} across unpaid and overdue invoices.</p>
         </div>
     </section>
@@ -173,7 +175,7 @@
     <section class="panel" aria-labelledby="payments-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Activity</p>
+                <p class="panel__kicker">Payment stream // 03</p>
                 <h2 class="panel__title" id="payments-heading">Recent payments</h2>
             </div>
             <a class="panel__meta" href="{{ route('billing.payments.index') }}">All payments</a>
@@ -194,7 +196,7 @@
     <section class="panel" aria-labelledby="logs-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Activity</p>
+                <p class="panel__kicker">Operation log // 04</p>
                 <h2 class="panel__title" id="logs-heading">Recent network operations</h2>
             </div>
             <a class="panel__meta" href="{{ route('network.logs.index') }}">All logs</a>

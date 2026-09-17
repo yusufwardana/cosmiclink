@@ -52,8 +52,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/customers/{customer}/connections/create', [CustomerConnectionController::class, 'create'])->name('customers.connections.create');
     Route::post('/customers/{customer}/connections', [CustomerConnectionController::class, 'store'])->name('customers.connections.store');
     Route::post('/connections/{connection}/provision', [CustomerConnectionController::class, 'provision'])->name('connections.provision');
-    Route::resource('routers', RouterController::class)->except(['create']);
+    // The explicit create route must be declared before the resource: the
+    // resource's `routers/{router}` would otherwise capture "create" as a
+    // router id and the page's Add router action would 500.
     Route::get('/routers/create', [RouterController::class, 'create'])->name('routers.create');
+    Route::resource('routers', RouterController::class)->except(['create']);
     Route::post('/routers/{router}/test', [RouterController::class, 'test'])->name('routers.test');
     Route::get('/network/accounts', [NetworkAccountController::class, 'index'])->name('network.accounts.index');
     Route::post('/network/accounts', [NetworkAccountController::class, 'store'])->name('network.accounts.store');

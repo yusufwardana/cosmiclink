@@ -1,4 +1,4 @@
-/* CosmicLink design tokens — Phase 6A.2 (Cinder visual refinement)
+/* CosmicLink design tokens — Phase 6C (Aurora-inspired operational dark)
  * DNA adapted from Hallmark's Lumen theme (Night Foundry drop), retuned for an
  * ISP/NOC operations instrument rather than an AI product marketing page:
  *   paper   -> cool-violet near-black canvas, one flat reading surface
@@ -23,54 +23,55 @@
 :root {
   color-scheme: dark;
 
-  /* Canvas + surfaces — reference ladder: 13 / 17 / 22 / 27 */
-  --cl-canvas: oklch(13% 0.014 265);
-  --cl-canvas-2: oklch(17% 0.016 265);
-  --cl-surface-1: oklch(17% 0.016 265);
-  --cl-surface-2: oklch(22% 0.018 263);
-  --cl-surface-3: oklch(27% 0.02 263);
+  /* Aurora canvas + surfaces — near-black blue-green atmospheric register */
+  --cl-canvas: oklch(10% 0.018 205);
+  --cl-canvas-2: oklch(13% 0.022 205);
+  --cl-surface-1: oklch(14% 0.024 211);
+  --cl-surface-2: oklch(18% 0.028 211);
+  --cl-surface-3: oklch(22% 0.032 211);
 
   /* Hairlines — 30 / 42, matching the reference rule contrast */
-  --cl-hairline: oklch(30% 0.018 265);
-  --cl-hairline-2: oklch(42% 0.02 263);
-  --cl-hairline-soft: oklch(96% 0.006 262 / 0.07);
+  --cl-hairline: oklch(29% 0.035 211);
+  --cl-hairline-2: oklch(43% 0.045 211);
+  --cl-hairline-soft: oklch(92% 0.02 211 / 0.09);
 
   /* Ink hierarchy */
-  --cl-ink: oklch(97% 0.006 262);
-  --cl-ink-2: oklch(84% 0.01 262);
-  --cl-muted: oklch(68% 0.014 263);
-  --cl-faint: oklch(54% 0.014 263);
+  --cl-ink: oklch(96% 0.012 190);
+  --cl-ink-2: oklch(84% 0.018 195);
+  --cl-muted: oklch(68% 0.025 200);
+  --cl-faint: oklch(51% 0.026 205);
 
   /* Brand + operational states */
-  --cl-cyan: oklch(81% 0.122 199);
-  --cl-cyan-deep: oklch(58% 0.1 205);
-  --cl-cyan-ink: oklch(16% 0.02 220);
-  --cl-cyan-soft: oklch(81% 0.122 199 / 0.12);
+  --cl-cyan: oklch(82% 0.14 190);
+  --cl-cyan-deep: oklch(57% 0.11 195);
+  --cl-cyan-ink: oklch(12% 0.02 205);
+  --cl-cyan-soft: oklch(82% 0.14 190 / 0.13);
   --cl-brass: oklch(83% 0.135 74);
   --cl-brass-soft: oklch(83% 0.135 74 / 0.13);
   --cl-danger: oklch(72% 0.155 25);
   --cl-danger-soft: oklch(72% 0.155 25 / 0.14);
   --cl-ok: oklch(81% 0.125 158);
   --cl-ok-soft: oklch(81% 0.125 158 / 0.13);
-  --cl-glow: oklch(81% 0.122 199 / 0.3);
-  --cl-emit: oklch(76% 0.17 50 / 0.035);
-  --cl-blueprint: oklch(96% 0.006 262 / 0.035);
-  --cl-focus: oklch(84% 0.13 199);
+  --cl-glow: oklch(82% 0.14 190 / 0.22);
+  --cl-emit: oklch(76% 0.12 178 / 0.035);
+  --cl-blueprint: oklch(92% 0.02 211 / 0.035);
+  --cl-focus: oklch(82% 0.16 190);
 
-  /* Secondary editorial accent — the warm register.
+  /* Secondary Aurora accent — the teal signal register.
    * accent   : rules, ordinals, technical labels, simulation context
-   * accent-2 : coral, for one line of emphasis and the selection wash
-   * Cyan stays the product/network identity and never becomes decoration. */
-  --cl-accent: oklch(76% 0.17 50);
-  --cl-accent-deep: oklch(82% 0.18 50);
-  --cl-accent-2: oklch(68% 0.16 18);
-  --cl-accent-soft: oklch(76% 0.17 50 / 0.12);
-  --cl-accent-rule: oklch(76% 0.17 50 / 0.55);
-  --cl-accent-ink: oklch(13% 0.014 265);
+   * accent-2 : restrained violet, for one emphasis run and focus context. */
+  --cl-accent: oklch(76% 0.12 178);
+  --cl-accent-deep: oklch(82% 0.14 178);
+  --cl-accent-2: oklch(72% 0.13 285);
+  --cl-accent-soft: oklch(76% 0.12 178 / 0.13);
+  --cl-accent-rule: oklch(76% 0.12 178 / 0.55);
+  --cl-accent-ink: oklch(10% 0.018 205);
 
-  /* Typography — display serif for titles and headline values only */
-  --cl-font-display: 'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, ui-serif, serif;
-  --cl-font-body: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Typography — system sans for the operational UI. The repository only
+     ships Instrument Serif; it remains available for the guest brand mark,
+     but is intentionally not used for dashboard hierarchy. */
+  --cl-font-display: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --cl-font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --cl-font-label: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
   --cl-text-micro: 10px;
   --cl-text-xs: 11px;
@@ -80,11 +81,11 @@
   --cl-text-lg: 16px;
   --cl-text-xl: 20px;
   --cl-text-2xl: clamp(26px, 2.5vw, 34px);
-  --cl-text-display: clamp(32px, 2.6vw + 1rem, 44px);
-  --cl-text-display-s: clamp(25px, 1.6vw + 0.9rem, 32px);
-  --cl-text-numeral: clamp(30px, 2.6vw, 40px);
-  --cl-tracking-micro: 0.18em;
-  --cl-tracking-label: 0.12em;
+  --cl-text-display: clamp(28px, 2vw + 1rem, 36px);
+  --cl-text-display-s: clamp(24px, 1.4vw + 0.8rem, 30px);
+  --cl-text-numeral: clamp(26px, 2vw, 32px);
+  --cl-tracking-micro: 0.14em;
+  --cl-tracking-label: 0.08em;
   --cl-tracking-tight: -0.012em;
   --cl-tracking-display: -0.03em;
   --cl-lh-tight: 1.1;
@@ -105,7 +106,7 @@
   /* Radius — restrained, hairline-friendly */
   --cl-radius-xs: 3px;
   --cl-radius-sm: 5px;
-  --cl-radius-md: 10px;
+  --cl-radius-md: 8px;
   --cl-radius-lg: 14px;
   --cl-radius-pill: 999px;
   --cl-rule: 1px;
@@ -122,11 +123,22 @@
   --cl-dur-long: 420ms;
 
   /* Shell geometry */
-  --cl-sidebar-w: 264px;
+  --cl-sidebar-w: 248px;
   --cl-topbar-h: 64px;
   --cl-page-max: 1280px;
   --cl-topbar-pad: 12px;
   --cl-grid: 48px;
+  /* Spec-sheet key column (F3). Shared by the record readout and by the
+     create/edit form of the same record, so the two line up column-for-column. */
+  --cl-key-col: minmax(0, 0.34fr);
+
+  /* Futuristic Aurora interaction layer */
+  --cl-bloom-1: oklch(54% 0.12 190 / 0.16);
+  --cl-bloom-2: oklch(45% 0.10 178 / 0.11);
+  --cl-glass: oklch(18% 0.028 211 / 0.72);
+  --cl-glass-border: oklch(82% 0.14 190 / 0.2);
+  --cl-grid-line: oklch(82% 0.14 190 / 0.07);
+  --cl-elevation-interactive: 0 14px 34px -24px oklch(82% 0.14 190 / 0.45);
 
   /* Legacy aliases — kept so any pre-6A.1 markup/utility stays valid */
   --sidebar-width: var(--cl-sidebar-w);
@@ -149,4 +161,35 @@
   --green-soft: var(--cl-ok-soft);
   --red: var(--cl-danger);
   --red-soft: var(--cl-danger-soft);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --cl-canvas: oklch(97% 0.012 190);
+  --cl-canvas-2: oklch(94% 0.018 195);
+  --cl-surface-1: oklch(99% 0.006 190);
+  --cl-surface-2: oklch(95% 0.018 195);
+  --cl-surface-3: oklch(91% 0.025 195);
+  --cl-hairline: oklch(83% 0.035 205);
+  --cl-hairline-2: oklch(68% 0.045 205);
+  --cl-hairline-soft: oklch(38% 0.025 205 / 0.12);
+  --cl-ink: oklch(18% 0.028 210);
+  --cl-ink-2: oklch(31% 0.028 210);
+  --cl-muted: oklch(48% 0.028 205);
+  --cl-faint: oklch(60% 0.025 205);
+  --cl-cyan: oklch(53% 0.13 190);
+  --cl-cyan-deep: oklch(42% 0.10 195);
+  --cl-cyan-ink: oklch(99% 0.006 190);
+  --cl-cyan-soft: oklch(53% 0.13 190 / 0.13);
+  --cl-focus: oklch(48% 0.14 190);
+  --cl-accent: oklch(48% 0.11 178);
+  --cl-accent-deep: oklch(42% 0.12 178);
+  --cl-accent-2: oklch(53% 0.13 285);
+  --cl-accent-soft: oklch(48% 0.11 178 / 0.12);
+  --cl-accent-rule: oklch(48% 0.11 178 / 0.48);
+  --cl-accent-ink: oklch(99% 0.006 190);
+  --cl-glass: oklch(99% 0.006 190 / 0.76);
+  --cl-glass-border: oklch(53% 0.13 190 / 0.22);
+  --cl-grid-line: oklch(53% 0.13 190 / 0.12);
+  --cl-elevation-interactive: 0 14px 34px -24px oklch(35% 0.08 205 / 0.38);
 }

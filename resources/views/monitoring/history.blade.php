@@ -12,6 +12,15 @@
     </div>
 </div>
 
+<section class="panel" aria-labelledby="history-ledger">
+    <div class="panel__head">
+        <div>
+            <p class="panel__kicker">Read-only register</p>
+            <h2 class="panel__title" id="history-ledger">Observations</h2>
+        </div>
+        <span class="panel__meta">{{ $observations->count() }} records</span>
+    </div>
+    <div class="panel__body panel__body--flush">
 <div class="table-scroll">
     <table>
         <thead>
@@ -29,9 +38,11 @@
                     <td>{{ $observation->provider }}</td>
                 </tr>
             @empty
-                <tr><td colspan="7">No observations recorded for this subject yet.</td></tr>
+                <tr><td colspan="7"><p class="empty-state">No observations recorded for this subject yet.</p></td></tr>
             @endforelse
         </tbody>
     </table>
 </div>
+</div>
+</section>
 @endsection
