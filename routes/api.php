@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentApiController;
 use App\Http\Controllers\Api\V1\ApiController;
 use Illuminate\Support\Facades\Route;
 
@@ -14,4 +15,10 @@ Route::prefix('v1')->middleware(['web', 'auth'])->group(function () {
     Route::get('/outages', [ApiController::class, 'outages'])->name('api.v1.outages.index');
     Route::get('/outages/{incident}', [ApiController::class, 'outage'])->name('api.v1.outages.show');
     Route::post('/outages/{incident}/acknowledge', [ApiController::class, 'acknowledge'])->name('api.v1.outages.acknowledge');
+});
+
+Route::prefix('v1/agent')->group(function () {
+    Route::post('/heartbeat', [AgentApiController::class, 'heartbeat']);
+    Route::post('/jobs/claim', [AgentApiController::class, 'claim']);
+    Route::post('/jobs/{job}/result', [AgentApiController::class, 'result']);
 });

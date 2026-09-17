@@ -17,9 +17,14 @@ class NetworkDiscoveryService
     {
         $result = $this->client->discover($router);
 
+        return $this->persist($router, $user, $result);
+    }
+
+    public function persist(Router $router, ?User $user, DiscoveryResult $result): NetworkDiscoverySnapshot
+    {
         return DB::transaction(function () use ($router, $user, $result) {
             $normalizedSnapshot = $this->sanitize($result->data['snapshot'] ?? []);
-            $snapshot = NetworkDiscoverySnapshot::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user->id, 'provider' => $result->data['provider'] ?? 'unknown', 'status' => $result->successful ? 'success' : 'failed', 'discovered_at' => $result->data['discovered_at'] ?? now(), 'summary' => $result->successful ? $this->summary($normalizedSnapshot) : [], 'snapshot' => $result->successful ? $normalizedSnapshot : null, 'error' => $result->successful ? null : $result->message]);
+            $snapshot = NetworkDiscoverySnapshot::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user?->id, 'provider' => $result->data['provider'] ?? 'unknown', 'status' => $result->successful ? 'success' : 'failed', 'discovered_at' => $result->data['discovered_at'] ?? now(), 'summary' => $result->successful ? $this->summary($normalizedSnapshot) : [], 'snapshot' => $result->successful ? $normalizedSnapshot : null, 'error' => $result->successful ? null : $result->message]);
             if ($result->successful) {
                 foreach (['profiles' => 'pppoe_profile', 'accounts' => 'pppoe_account', 'address_pools' => 'address_pool', 'queues' => 'queue'] as $section => $type) {
                     foreach (($normalizedSnapshot[$section] ?? []) as $data) {
@@ -34,7 +39,7 @@ class NetworkDiscoveryService
                     }
                 }
             }
-            NetworkDiscoveryAudit::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user->id, 'action' => 'DISCOVERY', 'details' => $this->sanitize(['status' => $snapshot->status, 'provider' => $snapshot->provider, 'counts' => $snapshot->summary, 'device_identity' => $normalizedSnapshot['device']['name'] ?? null, 'routeros_version' => $normalizedSnapshot['device']['routeros_version'] ?? null]), 'occurred_at' => now()]);
+            NetworkDiscoveryAudit::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user?->id, 'action' => 'DISCOVERY', 'details' => $this->sanitize(['status' => $snapshot->status, 'provider' => $snapshot->provider, 'counts' => $snapshot->summary, 'device_identity' => $normalizedSnapshot['device']['name'] ?? null, 'routeros_version' => $normalizedSnapshot['device']['routeros_version'] ?? null]), 'occurred_at' => now()]);
 
             return $snapshot;
         });

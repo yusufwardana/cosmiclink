@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\CustomerConnection;
 use App\Models\DiscoveredNetworkResource;
+use App\Models\NetworkAgent;
+use App\Models\NetworkAgentJob;
 use App\Models\Router;
 use App\Services\Network\AdoptDiscoveredNetworkResource;
+use App\Services\Network\NetworkAgentService;
 use App\Services\Network\NetworkDiscoveryService;
 use App\Services\Network\NetworkReconciliationService;
 use Illuminate\Http\Request;
@@ -35,12 +38,19 @@ class NetworkDiscoveryController extends Controller
             }
         }
 
-        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'connections' => CustomerConnection::where('tenant_id', $tenant)->get(), 'latestDiscovery' => $latestDiscovery]);
+        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'connections' => CustomerConnection::where('tenant_id', $tenant)->get(), 'latestDiscovery' => $latestDiscovery, 'agents' => NetworkAgent::where('tenant_id', $tenant)->orderBy('name')->get(), 'agentJobs' => NetworkAgentJob::where('tenant_id', $tenant)->with(['agent', 'router'])->latest()->take(20)->get()]);
     }
 
-    public function discover(Router $router, NetworkDiscoveryService $service)
+    public function discover(Request $request, Router $router, NetworkDiscoveryService $service, NetworkAgentService $agents)
     {
         Gate::authorize('operate', $router);
+        $data = $request->validate(['network_agent_id' => ['nullable', 'integer']]);
+        if (! empty($data['network_agent_id'])) {
+            $agent = NetworkAgent::where('tenant_id', Auth::user()->tenant_id)->findOrFail($data['network_agent_id']);
+            $job = $agents->createDiscoveryJob($router, $agent, Auth::user());
+
+            return back()->with('status', 'Discovery job '.$job->id.' is PENDING for '.$agent->name.'.');
+        }
         $snapshot = $service->discover($router, Auth::user());
 
         return back()->with($snapshot->status === 'success' ? 'status' : 'error', $snapshot->status === 'success' ? 'Read-only discovery completed.' : $snapshot->error);
