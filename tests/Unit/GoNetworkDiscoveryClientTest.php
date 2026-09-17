@@ -15,6 +15,7 @@ class GoNetworkDiscoveryClientTest extends TestCase
     {
         config()->set('network.go.url', 'http://network-engine.test');
         config()->set('network.go.token', 'shared-test-token');
+        config()->set('network.discovery_provider', 'fake');
         $router = Router::factory()->for(Tenant::factory())->make(['id' => 42, 'tenant_id' => 7]);
         Http::fake(function (Request $request) {
             $this->assertSame('Bearer shared-test-token', $request->header('Authorization')[0]);
@@ -57,6 +58,7 @@ class GoNetworkDiscoveryClientTest extends TestCase
     {
         config()->set('network.go.url', 'http://network-engine.test');
         config()->set('network.go.token', 'shared-test-token');
+        config()->set('network.discovery_provider', 'fake');
         $router = Router::factory()->for(Tenant::factory())->make(['id' => 42, 'tenant_id' => 7]);
         Http::fake(['network-engine.test/*' => Http::response(['message' => 'bad contract'])]);
 

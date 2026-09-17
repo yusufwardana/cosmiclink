@@ -124,8 +124,12 @@ The fake Phase 6B execution provider tracks invocations of its mutation methods.
 
 This endpoint is only a FakeProvider acceptance-test instrument; it does not expose device data or management operations and must not be considered a production observability interface.
 
-## Hardware verification status — September 17, 2026
+## Hardware verification status — September 18, 2026
 
-**PHASE 6D — PARTIAL VERIFIED.** The transport/provider, allowlist, normalization, credential-redaction, and Laravel persistence paths are covered by automated tests. No explicitly designated physical MikroTik or RouterOS v6.49.13 test target was available in this workspace; no network scan or router connection was attempted.
+**PHASE 6D — FULLY VERIFIED for the documented read-only discovery scope.** An explicitly authorized MikroTik hEX running RouterOS **6.49.13 (long-term)** was reached over its LAN-local RouterOS API service using a dedicated `read,api` account with no `write` policy.
 
-Therefore the following are **NOT TESTED**: real API/API-SSL discovery, pre/post real-router configuration fingerprint comparison, repeated real discovery, real-data adoption, and RouterOS write-command count from hardware logs. Any future hardware run must use an explicitly authorized test router and preferably a dedicated read-only account, capture safe pre/post configuration evidence, run discovery twice, and prove no configuration change.
+The verified path was Laravel → authenticated Go Network Engine → `RouterOSDiscoveryProvider` → RouterOS binary API. Real device metadata, PPPoE profiles/accounts, address pools, and simple queues were normalized and persisted. A second discovery created a new historical snapshot but no duplicate resources, preserved `first_seen_at`, advanced `last_seen_at`, and retained `DISCOVERED` state. Reconciliation remained stable.
+
+A deterministic sanitized normalized-inventory fingerprint, excluding uptime and sensitive/volatile fields, matched before and after the hardware run. Checked Laravel/Go results, snapshots, normalized resources, audits, logs, and rendered UI contained neither the router login password nor PPPoE passwords. The real discovery engine's FakeProvider mutation counter remained `0`; no Phase 6B network-operation log was created; no `MANAGED` transition occurred.
+
+The implementation records only the six allowlisted reads above. RouterOS mutation is **not implemented in Phase 6D**. Local adoption against the real inventory was not required for this acceptance run and remains a Laravel-only mapping operation when used.

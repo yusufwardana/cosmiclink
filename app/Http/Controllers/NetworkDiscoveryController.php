@@ -19,6 +19,14 @@ class NetworkDiscoveryController extends Controller
         $tenant = Auth::user()->tenant_id;
         $routers = Router::where('tenant_id', $tenant)->with('discoverySnapshots')->get();
         $resources = DiscoveredNetworkResource::where('tenant_id', $tenant)->with('router')->latest('last_seen_at')->get();
+        $latestDiscovery = $routers->mapWithKeys(function (Router $router) {
+            $snapshot = $router->discoverySnapshots->where('status', 'success')->sortByDesc('id')->first();
+
+            return [$router->id => $snapshot ? [
+                'device' => array_intersect_key((array) ($snapshot->snapshot['device'] ?? []), array_flip(['name', 'routeros_version', 'architecture', 'board_name', 'platform'])),
+                'summary' => (array) $snapshot->summary,
+            ] : null];
+        });
 
         $statuses = [];
         foreach ($routers as $router) {
@@ -27,7 +35,7 @@ class NetworkDiscoveryController extends Controller
             }
         }
 
-        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'connections' => CustomerConnection::where('tenant_id', $tenant)->get()]);
+        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'connections' => CustomerConnection::where('tenant_id', $tenant)->get(), 'latestDiscovery' => $latestDiscovery]);
     }
 
     public function discover(Router $router, NetworkDiscoveryService $service)
