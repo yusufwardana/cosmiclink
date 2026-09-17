@@ -20,7 +20,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	server := &http.Server{
 		Addr:              config.Address,
-		Handler:           api.New(provider.NewFakeProvider(), config.Token, logger).Handler(),
+		Handler:           api.New(provider.NewFakeProvider(), provider.NewFakeDiscoveryProvider(), config.Token, logger).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

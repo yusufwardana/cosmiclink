@@ -18,13 +18,14 @@ const maxRequestBodyBytes = 64 << 10
 
 type Server struct {
 	provider    network.Provider
+	discovery   network.DiscoveryProvider
 	token       string
 	logger      *slog.Logger
 	idempotency *idempotencyStore
 }
 
-func New(provider network.Provider, token string, logger *slog.Logger) *Server {
-	return &Server{provider: provider, token: token, logger: logger, idempotency: &idempotencyStore{results: make(map[string]network.Result)}}
+func New(provider network.Provider, discovery network.DiscoveryProvider, token string, logger *slog.Logger) *Server {
+	return &Server{provider: provider, discovery: discovery, token: token, logger: logger, idempotency: &idempotencyStore{results: make(map[string]network.Result)}}
 }
 
 func (server *Server) Handler() http.Handler {
@@ -36,8 +37,58 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/disable", server.protected("DISABLE_PPPOE", server.execute))
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/profile", server.protected("CHANGE_PROFILE", server.execute))
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/disconnect", server.protected("DISCONNECT_SESSION", server.execute))
+	mux.HandleFunc("POST /v1/discovery/routers/{router_ref}", server.discoveryProtected)
+	mux.HandleFunc("GET /v1/discovery/safety/mutation-count", server.mutationCount)
 
 	return mux
+}
+
+func (server *Server) mutationCount(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"code": "UNAUTHORIZED", "message": "Unauthorized"})
+		return
+	}
+	counter, supported := server.provider.(network.MutationCounter)
+	if !supported {
+		writeJSON(writer, http.StatusNotFound, map[string]any{"code": "NOT_AVAILABLE", "message": "Mutation counter unavailable"})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]int{"mutation_count": counter.MutationCount()})
+}
+
+func (server *Server) discoveryProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, network.DiscoveryResult{Success: false, Provider: server.discovery.Name(), Code: "UNAUTHORIZED", Message: "Unauthorized"})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	var command network.DiscoveryRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || command.TenantRef == "" || command.RouterRef == "" || command.RouterRef != request.PathValue("router_ref") {
+		writeJSON(writer, http.StatusBadRequest, network.DiscoveryResult{Success: false, Provider: server.discovery.Name(), RouterRef: command.RouterRef, Code: "INVALID_REQUEST", Message: "Invalid discovery request"})
+		return
+	}
+	result := server.discovery.Discover(request.Context(), command)
+	if result.Provider == "" {
+		result.Provider = server.discovery.Name()
+	}
+	if result.RouterRef == "" {
+		result.RouterRef = command.RouterRef
+	}
+	server.logger.Info("network discovery", "tenant_ref", command.TenantRef, "router_ref", command.RouterRef, "provider", result.Provider, "result", result.Code)
+	status := http.StatusOK
+	if !result.Success {
+		if result.Code == "ROUTER_NOT_FOUND" {
+			status = http.StatusNotFound
+		} else if result.Code == "ROUTER_UNAVAILABLE" {
+			status = http.StatusServiceUnavailable
+		} else {
+			status = http.StatusBadGateway
+		}
+	}
+	writeJSON(writer, status, result)
 }
 
 func (server *Server) health(writer http.ResponseWriter, _ *http.Request) {

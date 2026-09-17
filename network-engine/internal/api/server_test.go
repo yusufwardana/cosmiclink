@@ -66,7 +66,7 @@ func TestInvalidRequestAndUnknownAccountAreStructured(t *testing.T) {
 func TestProviderFailureAndLogRedaction(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	server := New(failingProvider{}, testToken, logger)
+	server := New(failingProvider{}, provider.NewFakeDiscoveryProvider(), testToken, logger)
 	request := command("CREATE_PPPOE", "cust001", map[string]any{"username": "cust001", "profile": "HOME-10M", "password": "pppoe-secret"})
 	response := execute(server, http.MethodPost, "/v1/network/accounts", request, testToken)
 
@@ -77,7 +77,65 @@ func TestProviderFailureAndLogRedaction(t *testing.T) {
 }
 
 func testServer() *Server {
-	return New(provider.NewFakeProvider(), testToken, slog.New(slog.NewTextHandler(ioDiscard{}, nil)))
+	return New(provider.NewFakeProvider(), provider.NewFakeDiscoveryProvider(), testToken, slog.New(slog.NewTextHandler(ioDiscard{}, nil)))
+}
+
+func TestDiscoveryIsAuthenticatedReadOnlyAndSecretFree(t *testing.T) {
+	server := testServer()
+	body := []byte(`{"tenant_ref":"tenant-1","router_ref":"router-1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/router-1", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, req)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"name":"CORE-01"`) || strings.Contains(strings.ToLower(response.Body.String()), "password") {
+		t.Fatalf("discovery response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestDiscoveryRejectsInvalidRouterAndUnauthorizedRequest(t *testing.T) {
+	server := testServer()
+	body := []byte(`{"tenant_ref":"tenant-1","router_ref":"invalid"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/invalid", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, req)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("got %d", response.Code)
+	}
+	unauthorized := httptest.NewRecorder()
+	server.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/router-1", bytes.NewReader(body)))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("got %d", unauthorized.Code)
+	}
+}
+
+func TestDiscoveryDoesNotIncreaseFakeProviderMutationCount(t *testing.T) {
+	fake := provider.NewFakeProvider()
+	server := New(fake, provider.NewFakeDiscoveryProvider(), testToken, slog.New(slog.NewTextHandler(ioDiscard{}, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/router-1", strings.NewReader(`{"tenant_ref":"tenant-1","router_ref":"router-1"}`))
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	server.Handler().ServeHTTP(httptest.NewRecorder(), request)
+	if fake.MutationCount() != 0 {
+		t.Fatalf("mutation count = %d, want 0", fake.MutationCount())
+	}
+	count := httptest.NewRecorder()
+	check := httptest.NewRequest(http.MethodGet, "/v1/discovery/safety/mutation-count", nil)
+	check.Header.Set("Authorization", "Bearer "+testToken)
+	server.Handler().ServeHTTP(count, check)
+	if count.Code != http.StatusOK || !strings.Contains(count.Body.String(), `"mutation_count":0`) {
+		t.Fatalf("counter response = %d %s", count.Code, count.Body.String())
+	}
+}
+
+func TestDiscoveryProviderFailureIsStructured(t *testing.T) {
+	server := New(provider.NewFakeProvider(), failingDiscoveryProvider{}, testToken, slog.New(slog.NewTextHandler(ioDiscard{}, nil)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/discovery/routers/router-1", strings.NewReader(`{"tenant_ref":"tenant-1","router_ref":"router-1"}`))
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), `"code":"PROVIDER_FAILURE"`) {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
 }
 
 func command(operation, account string, parameters map[string]any) network.Request {
@@ -106,6 +164,13 @@ func assertCode(t *testing.T, response *httptest.ResponseRecorder, status int, c
 }
 
 type failingProvider struct{}
+
+type failingDiscoveryProvider struct{}
+
+func (failingDiscoveryProvider) Name() string { return "fake" }
+func (failingDiscoveryProvider) Discover(context.Context, network.DiscoveryRequest) network.DiscoveryResult {
+	return network.DiscoveryResult{Success: false, Provider: "fake", Code: "PROVIDER_FAILURE", Message: "Provider discovery failed"}
+}
 
 func (failingProvider) Name() string { return "fake" }
 func (failingProvider) TestConnection(context.Context, network.Request) network.Result {

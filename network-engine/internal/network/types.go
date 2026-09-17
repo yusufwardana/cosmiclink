@@ -30,3 +30,35 @@ type Provider interface {
 	ChangeProfile(context.Context, Request) Result
 	DisconnectSession(context.Context, Request) Result
 }
+
+type DiscoveryRequest struct {
+	TenantRef string `json:"tenant_ref"`
+	RouterRef string `json:"router_ref"`
+}
+
+type DiscoveryResult struct {
+	Success      bool              `json:"success"`
+	Provider     string            `json:"provider"`
+	RouterRef    string            `json:"router_ref"`
+	DiscoveredAt string            `json:"discovered_at,omitempty"`
+	Snapshot     DiscoverySnapshot `json:"snapshot,omitempty"`
+	Code         string            `json:"code"`
+	Message      string            `json:"message"`
+}
+
+type DiscoverySnapshot struct {
+	Device       map[string]any   `json:"device"`
+	Profiles     []map[string]any `json:"profiles"`
+	Accounts     []map[string]any `json:"accounts"`
+	AddressPools []map[string]any `json:"address_pools"`
+	Queues       []map[string]any `json:"queues"`
+}
+
+type DiscoveryProvider interface {
+	Name() string
+	Discover(context.Context, DiscoveryRequest) DiscoveryResult
+}
+
+type MutationCounter interface {
+	MutationCount() int
+}

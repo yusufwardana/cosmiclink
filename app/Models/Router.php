@@ -55,4 +55,14 @@ class Router extends Model
     {
         return $this->hasMany(OutageIncident::class);
     }
+
+    public function discoverySnapshots()
+    {
+        return $this->hasMany(NetworkDiscoverySnapshot::class);
+    }
+
+    public function discoveredResources()
+    {
+        return $this->hasMany(DiscoveredNetworkResource::class);
+    }
 }

@@ -47,6 +47,14 @@ Protected routes require `Authorization: Bearer <GO_NETWORK_ENGINE_TOKEN>`:
 | `CHANGE_PROFILE` | `POST /v1/network/accounts/{reference}/profile` |
 | `DISCONNECT_SESSION` | `POST /v1/network/accounts/{reference}/disconnect` |
 
+Phase 6C adds a distinct authenticated read-only route:
+
+| Capability | Route |
+| --- | --- |
+| `DISCOVERY` | `POST /v1/discovery/routers/{router_ref}` |
+
+The discovery request is only `tenant_ref` and matching `router_ref`. Its normalized response is `success`, `provider`, `router_ref`, `discovered_at`, code/message, and snapshot sections `device`, `profiles`, `accounts`, `address_pools`, and `queues`. It is handled only by `DiscoveryProvider`, not `NetworkProvider`, and has no mutation methods.
+
 Each request contains only execution context: `operation_id`, `idempotency_key`, `operation`, `tenant_ref`, `router_ref`, optional `account_ref`, and operation `parameters`. Create-account parameters include PPPoE `username`, `profile`, and password where Laravel's existing driver contract requires it. The Go engine never writes it to logs or returns it in a response.
 
 Responses are normalized, including failures:
@@ -81,3 +89,7 @@ Mutation results are held in a mutex-protected, in-memory idempotency map keyed 
 - **RouterOS/MikroTik is not implemented.** There are no RouterOS libraries, protocols, REST calls, SNMP, ICMP, device credentials, polling, discovery, or real provisioning.
 - No gRPC, telemetry, websockets, topology, inventory, or technician workflow is included.
 - The idempotency cache is development-foundation only and must be replaced or backed by durable shared storage before horizontally scaled production execution.
+
+## Phase 6C discovery limitation
+
+`FakeDiscoveryProvider` is deterministic simulated data only. No RouterOS/MikroTik connection, API, REST request, queue/profile mutation, OLT, AP, CPE, SNMP, ICMP, agent, or private-LAN access is implemented. See `docs/SAFE_ISP_MIGRATION.md` for the explicit read-only adoption boundary.

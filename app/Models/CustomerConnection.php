@@ -80,4 +80,9 @@ class CustomerConnection extends Model
     {
         return $this->belongsToMany(OutageIncident::class, 'outage_affected_connections');
     }
+
+    public function discoveredNetworkResources()
+    {
+        return $this->hasMany(DiscoveredNetworkResource::class);
+    }
 }

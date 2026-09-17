@@ -23,7 +23,9 @@ use App\Services\Messaging\MessagingProvider;
 use App\Services\Monitoring\Contracts\MonitoringDriver;
 use App\Services\Monitoring\FakeMonitoringDriver;
 use App\Services\Network\FakeNetworkDriver;
+use App\Services\Network\GoNetworkDiscoveryClient;
 use App\Services\Network\GoNetworkDriver;
+use App\Services\Network\NetworkDiscoveryClient;
 use App\Services\Network\NetworkDriver;
 use App\Services\Payments\FakePaymentGateway;
 use App\Services\Payments\PaymentGateway;
@@ -41,6 +43,7 @@ class AppServiceProvider extends ServiceProvider
                 default => throw new \RuntimeException('Unsupported network driver configuration.'),
             };
         });
+        $this->app->bind(NetworkDiscoveryClient::class, GoNetworkDiscoveryClient::class);
         $this->app->bind(PaymentGateway::class, function ($app) {
             if (config('payments.gateway') !== 'fake') {
                 throw new \RuntimeException('No payment gateway is configured.');

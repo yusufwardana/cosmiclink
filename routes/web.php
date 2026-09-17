@@ -9,6 +9,7 @@ use App\Http\Controllers\InternetPackageController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\MonitoringController;
 use App\Http\Controllers\NetworkAccountController;
+use App\Http\Controllers\NetworkDiscoveryController;
 use App\Http\Controllers\OperationLogController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentRequestController;
@@ -59,6 +60,9 @@ Route::middleware('auth')->group(function () {
     Route::resource('routers', RouterController::class)->except(['create']);
     Route::post('/routers/{router}/test', [RouterController::class, 'test'])->name('routers.test');
     Route::get('/network/accounts', [NetworkAccountController::class, 'index'])->name('network.accounts.index');
+    Route::get('/network/discovery', [NetworkDiscoveryController::class, 'index'])->name('network.discovery.index');
+    Route::post('/network/discovery/routers/{router}', [NetworkDiscoveryController::class, 'discover'])->name('network.discovery.run');
+    Route::post('/network/discovery/resources/{resource}/adopt', [NetworkDiscoveryController::class, 'adopt'])->name('network.discovery.adopt');
     Route::post('/network/accounts', [NetworkAccountController::class, 'store'])->name('network.accounts.store');
     Route::post('/network/accounts/{account}/disable', fn (NetworkAccount $account, NetworkAccountController $controller, NetworkOperationService $operations) => $controller->status($account, 'disabled', $operations))->name('network.accounts.disable');
     Route::post('/network/accounts/{account}/enable', fn (NetworkAccount $account, NetworkAccountController $controller, NetworkOperationService $operations) => $controller->status($account, 'active', $operations))->name('network.accounts.enable');

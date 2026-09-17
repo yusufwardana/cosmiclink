@@ -38,7 +38,7 @@ const groups = [
     { label: 'Overview', links: [{ label: 'Dashboard', icon: 'dashboard', route: 'dashboard', href: '/dashboard' }] },
     { label: 'Customers', links: [{ label: 'Customers', icon: 'customers', route: 'customers.index', href: '/customers' }] },
     { label: 'Billing', links: [{ label: 'Invoices', icon: 'invoices', route: 'billing.invoices.index', href: '/billing/invoices' }, { label: 'Payments', icon: 'payments', route: 'billing.payments.index', href: '/billing/payments' }] },
-    { label: 'Network', links: [{ label: 'Routers', icon: 'routers', route: 'routers.index', href: '/routers' }, { label: 'Network accounts', icon: 'accounts', route: 'network.accounts.index', href: '/network/accounts' }, { label: 'Monitoring', icon: 'monitoring', route: 'monitoring.index', href: '/monitoring' }] },
+    { label: 'Network', links: [{ label: 'Routers', icon: 'routers', route: 'routers.index', href: '/routers' }, { label: 'Network accounts', icon: 'accounts', route: 'network.accounts.index', href: '/network/accounts' }, { label: 'Discovery', icon: 'monitoring', route: 'network.discovery.index', href: '/network/discovery' }, { label: 'Monitoring', icon: 'monitoring', route: 'monitoring.index', href: '/monitoring' }] },
     { label: 'Operations', links: [{ label: 'Outage incidents', icon: 'outages', route: 'monitoring.index', href: '/monitoring#outage-incidents', hash: '#outage-incidents' }, { label: 'Messages', icon: 'messages', route: 'messages.index', href: '/messages' }] },
     { label: 'System', links: [{ label: 'Operation logs', icon: 'logs', route: 'network.logs.index', href: '/network/logs' }] },
 ];
@@ -49,7 +49,7 @@ const titles = {
     'customers.index': 'Customers', 'customers.create': 'New customer', 'customers.show': 'Customer 360', 'customers.edit': 'Edit customer',
     'billing.invoices.index': 'Invoices', 'billing.invoices.show': 'Invoice', 'billing.payments.index': 'Payments', 'billing.payment-requests.show': 'Payment request',
     'routers.index': 'Routers', 'routers.show': 'Router', 'routers.edit': 'Edit router', 'routers.create': 'New router',
-    'network.accounts.index': 'Network accounts', 'network.logs.index': 'Operation logs',
+    'network.accounts.index': 'Network accounts', 'network.discovery.index': 'Read-only discovery', 'network.logs.index': 'Operation logs',
     'monitoring.index': 'Monitoring console', 'monitoring.incidents.show': 'Outage incident', 'monitoring.history': 'Health history',
     'messages.index': 'Messages',
     'packages.index': 'Packages', 'packages.create': 'New package', 'packages.show': 'Package', 'packages.edit': 'Edit package',

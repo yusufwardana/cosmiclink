@@ -8,8 +8,9 @@ import (
 )
 
 type FakeProvider struct {
-	mu       sync.Mutex
-	accounts map[string]account
+	mu        sync.Mutex
+	accounts  map[string]account
+	mutations int
 }
 
 type account struct {
@@ -36,6 +37,7 @@ func (p *FakeProvider) TestConnection(_ context.Context, request network.Request
 func (p *FakeProvider) CreateAccount(_ context.Context, request network.Request) network.Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mutations++
 	key := accountKey(request)
 	if _, exists := p.accounts[key]; exists {
 		return p.failure(request, "ACCOUNT_ALREADY_EXISTS", "Network account already exists")
@@ -49,6 +51,7 @@ func (p *FakeProvider) CreateAccount(_ context.Context, request network.Request)
 func (p *FakeProvider) EnableAccount(_ context.Context, request network.Request) network.Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mutations++
 	account, found := p.accounts[accountKey(request)]
 	if !found {
 		return p.failure(request, "ACCOUNT_NOT_FOUND", "Network account not found")
@@ -65,6 +68,7 @@ func (p *FakeProvider) EnableAccount(_ context.Context, request network.Request)
 func (p *FakeProvider) DisableAccount(_ context.Context, request network.Request) network.Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mutations++
 	account, found := p.accounts[accountKey(request)]
 	if !found {
 		return p.failure(request, "ACCOUNT_NOT_FOUND", "Network account not found")
@@ -81,6 +85,7 @@ func (p *FakeProvider) DisableAccount(_ context.Context, request network.Request
 func (p *FakeProvider) ChangeProfile(_ context.Context, request network.Request) network.Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mutations++
 	account, found := p.accounts[accountKey(request)]
 	if !found {
 		return p.failure(request, "ACCOUNT_NOT_FOUND", "Network account not found")
@@ -95,11 +100,19 @@ func (p *FakeProvider) ChangeProfile(_ context.Context, request network.Request)
 func (p *FakeProvider) DisconnectSession(_ context.Context, request network.Request) network.Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mutations++
 	if _, found := p.accounts[accountKey(request)]; !found {
 		return p.failure(request, "ACCOUNT_NOT_FOUND", "Network account not found")
 	}
 
 	return p.success(request, "SESSION_DISCONNECTED", "Network account session disconnected", map[string]any{"username": request.AccountRef})
+}
+
+func (p *FakeProvider) MutationCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.mutations
 }
 
 func (p *FakeProvider) success(request network.Request, code, message string, data map[string]any) network.Result {
