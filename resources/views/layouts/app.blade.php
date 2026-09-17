@@ -9,7 +9,7 @@
 </head>
 <body>
     @auth
-        <div id="cosmiclink-shell" data-base-url="{{ url('/') }}" data-csrf-token="{{ csrf_token() }}" data-current-route="{{ request()->route()?->getName() }}" data-tenant="{{ auth()->user()->tenant?->name }}" data-operator="{{ auth()->user()->name }}" data-simulation="{{ config('network.simulation') || config('monitoring.simulation') ? 'true' : 'false' }}"></div>
+        <div id="cosmiclink-shell" data-base-url="{{ request()->getBaseUrl() }}" data-csrf-token="{{ csrf_token() }}" data-current-route="{{ request()->route()?->getName() }}" data-tenant="{{ auth()->user()->tenant?->name }}" data-operator="{{ auth()->user()->name }}" data-simulation="{{ config('network.simulation') || config('monitoring.simulation') ? 'true' : 'false' }}"></div>
         <div class="app-main"><main class="content-wrap">@include('partials.flash') @yield('content')</main></div>
     @else
         <main class="guest-main">@include('partials.flash') @yield('content')</main>

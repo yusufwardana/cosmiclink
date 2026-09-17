@@ -881,6 +881,71 @@ Full SPA/module migration: **NOT IMPLEMENTED**.
 PostgreSQL, Redis, Go Network Engine, RouterOS, real monitoring, and later phases:
 **NOT IMPLEMENTED**.
 
+## Phase 5B — Laravel API + Vue Module Foundation
+
+Phase 5B establishes the first versioned JSON boundary without rewriting the
+application. The API lives under `/api/v1` and uses the existing authenticated
+Laravel session (`web` + `auth` middleware). Laravel remains responsible for
+authorization, tenant isolation, validation, resource queries, monitoring
+orchestration, outage correlation, and existing business actions. Vue owns only
+presentation, interaction, loading/error state, and API client behavior.
+
+### API endpoints
+
+Implemented authenticated endpoints:
+
+```text
+GET  /api/v1/dashboard
+GET  /api/v1/customers
+GET  /api/v1/customers/{customer}
+GET  /api/v1/monitoring
+POST /api/v1/monitoring/check
+POST /api/v1/monitoring/routers/{router}/simulation
+POST /api/v1/monitoring/connections/{connection}/simulation
+GET  /api/v1/outages
+GET  /api/v1/outages/{incident}
+POST /api/v1/outages/{incident}/acknowledge
+```
+
+`CustomerResource`, `MonitoringResource`, and `OutageIncidentResource` provide
+consistent JSON data. Customer lists and outage lists are paginated with bounded
+`per_page` values. Laravel validation returns the normal JSON `message` plus
+`errors` structure for invalid input. Unauthenticated requests return
+`Unauthenticated.` and cross-tenant resources are forbidden.
+
+### Vue module foundation
+
+Added frontend structure:
+
+```text
+resources/js/api/client.js
+resources/js/composables/useMonitoring.js
+resources/js/modules/monitoring/MonitoringPage.vue
+```
+
+Only Monitoring is migrated to Vue in this phase. It loads health summaries,
+routers, connections, and incidents from `/api/v1/monitoring`; simulation controls,
+Run Monitoring Check, and acknowledgement call the API and refresh client state.
+No outage correlation, billing rule, or tenant rule is duplicated in Vue. Existing
+Blade Customers, Billing, Routers, Messages, Outage, and Customer 360 pages remain
+available and continue to use the existing backend routes.
+
+### Verification and remaining migration
+
+API tests cover authentication, dashboard, customer pagination, Customer 360,
+monitoring, outage resources, tenant isolation, authorization, and validation.
+Final regression: **69 passed / 282 assertions**. Pint: **PASS — 145 files**.
+Frontend build: **PASS** with Vite. Browser automation verified login, dashboard,
+Vue Monitoring API load, health display, simulation controls, monitoring refresh,
+outage/recovery behavior, Customer 360, mobile shell, representative Blade pages,
+and zero console errors.
+
+Laravel API boundary: **VERIFIED**.
+Vue Monitoring module: **VERIFIED**.
+Customers/Billing/Routers/Messages full Vue migration: **NOT IMPLEMENTED**.
+PostgreSQL, Redis, Go Network Engine, RouterOS, SNMP/ICMP, WebSockets, and later
+phases: **NOT IMPLEMENTED**.
+
 Browser evidence used the local `artisan serve` runtime with Playwright Chromium
 for Testing 143.0.7499.4. The Monitoring UI showed healthy baseline with no
 incident, then three same-router connections were set offline. One incident was
