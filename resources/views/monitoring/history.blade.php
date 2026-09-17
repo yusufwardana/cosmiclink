@@ -1,7 +1,37 @@
 @extends('layouts.app')
 
 @section('content')
-<h1>Health History</h1><p>Subject: {{ $subject->name ?? $subject->connection_code }} ({{ strtoupper($type) }}). Historical observations are read-only audit records.</p>
-<table><tr><th>Time</th><th>State</th><th>Reachable</th><th>Online</th><th>Latency</th><th>Packet Loss</th><th>Provider</th></tr>@foreach($observations as $observation)<tr><td>{{ $observation->observed_at }}</td><td>{{ strtoupper($observation->health_state) }}</td><td>{{ $observation->reachable === null ? '—' : ($observation->reachable ? 'yes' : 'no') }}</td><td>{{ $observation->online === null ? '—' : ($observation->online ? 'yes' : 'no') }}</td><td>{{ $observation->latency_ms !== null ? $observation->latency_ms.' ms' : '—' }}</td><td>{{ $observation->packet_loss_percent !== null ? $observation->packet_loss_percent.'%' : '—' }}</td><td>{{ $observation->provider }}</td></tr>@endforeach</table>
-<a href="{{ route('monitoring.index') }}">Back to Monitoring</a>
+<div class="page-header">
+    <div>
+        <p class="eyebrow"><span class="eyebrow__ord">03</span><span class="eyebrow__sep">·</span>Health history</p>
+        <h1>{{ $subject->name ?? $subject->connection_code }}</h1>
+        <p class="page-header__meta">{{ strtoupper($type) }} observation audit trail. Historical records are read-only and never rewritten by later checks.</p>
+    </div>
+    <div class="page-header__aside">
+        <a class="button button--quiet button--sm" href="{{ route('monitoring.index') }}">Back to console</a>
+    </div>
+</div>
+
+<div class="table-scroll">
+    <table>
+        <thead>
+            <tr><th>Time</th><th>State</th><th>Reachable</th><th>Online</th><th>Latency</th><th>Packet loss</th><th>Provider</th></tr>
+        </thead>
+        <tbody>
+            @forelse ($observations as $observation)
+                <tr>
+                    <td><time class="cell-time">{{ $observation->observed_at }}</time></td>
+                    <td><span class="ui-status-badge ui-status-badge--{{ $observation->health_state }}">{{ $observation->health_state }}</span></td>
+                    <td>{{ $observation->reachable === null ? '—' : ($observation->reachable ? 'yes' : 'no') }}</td>
+                    <td>{{ $observation->online === null ? '—' : ($observation->online ? 'yes' : 'no') }}</td>
+                    <td class="mono-value">{{ $observation->latency_ms !== null ? $observation->latency_ms.' ms' : '—' }}</td>
+                    <td class="mono-value">{{ $observation->packet_loss_percent !== null ? $observation->packet_loss_percent.'%' : '—' }}</td>
+                    <td>{{ $observation->provider }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="7">No observations recorded for this subject yet.</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
 @endsection

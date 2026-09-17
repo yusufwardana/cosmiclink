@@ -1,7 +1,208 @@
 @extends('layouts.app')
+
 @section('content')
-<div class="page-header"><div><p class="topbar__eyebrow">Dashboard</p><h1>Command center</h1><p class="page-header__meta">A clear view of the systems that keep your ISP moving.</p></div><span class="topbar__mode">Local operations</span></div>
-<div class="stat-grid"><article class="stat-card stat-card--accent"><div class="stat-card__label">Customers</div><div class="stat-card__value">{{ $customerCount }}</div><div class="stat-card__hint">{{ $activeCustomers }} active accounts</div></article><article class="stat-card stat-card--accent"><div class="stat-card__label">Active connections</div><div class="stat-card__value">{{ $activeConnections }}</div><div class="stat-card__hint">of {{ $connectionCount }} total connections</div></article><article class="stat-card stat-card--warning"><div class="stat-card__label">Billing attention</div><div class="stat-card__value">{{ $overdueInvoices }}</div><div class="stat-card__hint">overdue invoices · Rp{{ number_format($outstandingAmount, 0, ',', '.') }}</div></article><article class="stat-card stat-card--danger"><div class="stat-card__label">Network accounts</div><div class="stat-card__value">{{ $activeAccounts }}</div><div class="stat-card__hint">active of {{ $accountCount }} accounts</div></article></div>
-<div class="section-heading"><div><h2>Billing operations</h2><p>Run manual billing actions when you are ready.</p></div></div><div class="card"><form method="post" action="{{ route('billing.generate') }}">@csrf<label>Billing period<input name="period" type="month" value="{{ now()->format('Y-m') }}" required></label><button type="submit">Generate monthly invoices</button></form><form method="post" action="{{ route('billing.overdue') }}">@csrf<button type="submit" class="button--quiet">Mark overdue and enforce isolation</button></form></div>
-<div class="section-heading"><div><h2>Recent network operations</h2><p>Latest provisioning and network activity.</p></div><a href="{{ route('network.logs.index') }}">View all</a></div>@include('network._logs', ['logs'=>$recentLogs])
+<div class="page-header">
+    <div>
+        <p class="eyebrow"><span class="eyebrow__ord">00</span><span class="eyebrow__sep">·</span>Dashboard</p>
+        <h1>Command center</h1>
+        <p class="page-header__meta">ISP operations, automated. Customer, network, billing and outage state assembled from live CosmicLink records.</p>
+    </div>
+    <div class="page-header__aside">
+        @if (config('network.simulation') || config('monitoring.simulation'))<span class="topbar__mode">SIMULATION MODE</span>@endif
+        <a class="button button--quiet button--sm" href="{{ route('monitoring.index') }}">Monitoring console</a>
+    </div>
+</div>
+
+<div class="stat-grid">
+    <article class="stat-card stat-card--accent">
+        <span class="stat-card__label">Customers</span>
+        <span class="stat-card__value">{{ $customerCount }}</span>
+        <span class="stat-card__hint">{{ $activeCustomers }} active accounts</span>
+    </article>
+    <article class="stat-card stat-card--accent">
+        <span class="stat-card__label">Active connections</span>
+        <span class="stat-card__value">{{ $activeConnections }}</span>
+        <span class="stat-card__hint">of {{ $connectionCount }} total · {{ $failedConnections }} failed</span>
+    </article>
+    <article class="stat-card stat-card--warning">
+        <span class="stat-card__label">Billing attention</span>
+        <span class="stat-card__value">{{ $overdueInvoices }}</span>
+        <span class="stat-card__hint">overdue · Rp{{ number_format($outstandingAmount, 0, ',', '.') }} outstanding</span>
+    </article>
+    <article class="stat-card stat-card--danger">
+        <span class="stat-card__label">Active outages</span>
+        <span class="stat-card__value">{{ $activeIncidentCount }}</span>
+        <span class="stat-card__hint">{{ $routerHealth['offline'] }} routers offline · {{ $routerHealth['degraded'] }} degraded</span>
+    </article>
+</div>
+
+<div class="ops-grid ops-grid--split">
+    <section class="panel" aria-labelledby="fabric-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Apparatus 01</p>
+                <h2 class="panel__title" id="fabric-heading">Network fabric</h2>
+            </div>
+            <span class="panel__meta">{{ $onlineRouters }}/{{ $routerCount }} routers available</span>
+        </div>
+        <div class="panel__body panel__body--flush">
+            <figure class="apparatus">
+                <div class="apparatus__stack">
+                    <div class="apparatus__node apparatus__node--core">
+                        <span class="apparatus__kicker">Internet / Core uplink</span>
+                        <span class="apparatus__value">{{ $routerCount }}</span>
+                        <span class="apparatus__note">{{ $onlineRouters }} routers available</span>
+                    </div>
+                    <span class="apparatus__link" aria-hidden="true"></span>
+                    <div class="apparatus__node">
+                        <span class="apparatus__kicker">PPPoE fabric</span>
+                        <span class="apparatus__value">{{ $activeAccounts }}</span>
+                        <span class="apparatus__note">{{ $accountCount }} subscriber accounts · {{ $disabledAccounts }} disabled</span>
+                    </div>
+                    <span class="apparatus__bus" aria-hidden="true"></span>
+                    <ul class="apparatus__branches">
+                        <li class="apparatus__branch apparatus__branch--ok">
+                            <span class="apparatus__kicker">Online</span>
+                            <span class="apparatus__value">{{ $activeConnections }}</span>
+                            <span class="apparatus__note">active connections</span>
+                        </li>
+                        <li class="apparatus__branch apparatus__branch--warn">
+                            <span class="apparatus__kicker">Provisioning</span>
+                            <span class="apparatus__value">{{ $pendingConnections }}</span>
+                            <span class="apparatus__note">pending connections</span>
+                        </li>
+                        <li class="apparatus__branch apparatus__branch--alert">
+                            <span class="apparatus__kicker">Faulted</span>
+                            <span class="apparatus__value">{{ $failedConnections }}</span>
+                            <span class="apparatus__note">failed connections</span>
+                        </li>
+                    </ul>
+                </div>
+                <figcaption class="apparatus__caption">
+                    <span>Total connections <b>{{ $connectionCount }}</b></span>
+                    <span>Suspended for billing <b>{{ $billingSuspendedConnections }}</b></span>
+                    <span>Last observation <b>{{ $latestObservationAt ?? 'none recorded' }}</b></span>
+                </figcaption>
+            </figure>
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="health-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Telemetry</p>
+                <h2 class="panel__title" id="health-heading">Network health</h2>
+            </div>
+            <span class="panel__meta">{{ $routerHealthObserved }} of {{ $routerCount }} routers observed</span>
+        </div>
+        <div class="panel__body">
+            @php($healthTotal = max(array_sum($routerHealth), 1))
+            <div class="health-bar" role="img" aria-label="Router health distribution: {{ $routerHealth['online'] }} online, {{ $routerHealth['degraded'] }} degraded, {{ $routerHealth['offline'] }} offline, {{ $routerHealth['unknown'] }} unobserved">
+                @foreach ($routerHealth as $state => $count)
+                    @if ($count > 0)
+                        <span class="health-bar__seg health-bar__seg--{{ $state }}" style="width: {{ round($count / $healthTotal * 100, 2) }}%"></span>
+                    @endif
+                @endforeach
+            </div>
+            <ul class="health-legend">
+                @foreach ($routerHealth as $state => $count)
+                    <li><span class="health-legend__dot health-legend__dot--{{ $state }}" aria-hidden="true"></span>{{ ucfirst($state) }} <span class="health-legend__value">{{ $count }}</span></li>
+                @endforeach
+            </ul>
+            <dl class="meta-list" style="margin-top: var(--cl-space-lg)">
+                <div><dt>Last observation</dt><dd class="mono-value">{{ $latestObservationAt ?? '—' }}</dd></div>
+                <div><dt>Accounts disabled</dt><dd class="mono-value">{{ $disabledAccounts }}</dd></div>
+                <div><dt>Suspended for billing</dt><dd class="mono-value">{{ $billingSuspendedConnections }}</dd></div>
+            </dl>
+        </div>
+    </section>
+</div>
+
+<div class="ops-grid ops-grid--split">
+    <section class="panel" aria-labelledby="outages-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Operations</p>
+                <h2 class="panel__title" id="outages-heading">Active outages</h2>
+            </div>
+            <a class="panel__meta" href="{{ route('monitoring.index') }}#outage-incidents">All incidents</a>
+        </div>
+        <div class="panel__body">
+            @forelse ($activeIncidents as $incident)
+                <article class="incident incident--{{ $incident->status }}">
+                    <div class="incident__head">
+                        <span class="ui-status-badge ui-status-badge--{{ $incident->status }}">{{ $incident->status }}</span>
+                        <span class="incident__router">{{ $incident->router?->name ?? 'Unassigned router' }}</span>
+                        <span class="incident__stamp">{{ $incident->detected_at?->format('Y-m-d H:i') }}</span>
+                    </div>
+                    <div class="incident__body">
+                        @include('monitoring._stages', ['incident' => $incident])
+                        <p class="console-note">{{ $incident->affected_connections_count }} affected connections · {{ $incident->correlation_count }} observations correlated within {{ $incident->evidence_window_minutes }} minutes</p>
+                    </div>
+                </article>
+            @empty
+                <p class="empty-state">No active correlated outages. Observed network state is nominal.</p>
+            @endforelse
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="billing-ops-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Revenue</p>
+                <h2 class="panel__title" id="billing-ops-heading">Billing operations</h2>
+            </div>
+            <span class="panel__meta">{{ $unpaidInvoices }} unpaid · {{ $overdueInvoices }} overdue</span>
+        </div>
+        <div class="panel__body">
+            <form method="post" action="{{ route('billing.generate') }}">
+                @csrf
+                <label>Billing period<input name="period" type="month" value="{{ now()->format('Y-m') }}" required></label>
+                <button type="submit">Generate monthly invoices</button>
+            </form>
+            <form method="post" action="{{ route('billing.overdue') }}">
+                @csrf
+                <button type="submit" class="button--quiet">Mark overdue and enforce isolation</button>
+            </form>
+            <p class="console-note">Outstanding balance Rp{{ number_format($outstandingAmount, 0, ',', '.') }} across unpaid and overdue invoices.</p>
+        </div>
+    </section>
+</div>
+
+<div class="ops-grid ops-grid--halves">
+    <section class="panel" aria-labelledby="payments-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Activity</p>
+                <h2 class="panel__title" id="payments-heading">Recent payments</h2>
+            </div>
+            <a class="panel__meta" href="{{ route('billing.payments.index') }}">All payments</a>
+        </div>
+        <div class="panel__body">
+            @forelse ($recentPayments as $payment)
+                <div class="feed__item">
+                    <span class="feed__label">Rp{{ number_format($payment->amount, 0, ',', '.') }}</span>
+                    <span class="feed__detail">{{ $payment->payment_reference }} · {{ $payment->method }}</span>
+                    <time class="feed__time">{{ $payment->paid_at?->format('M j, H:i') ?? '—' }}</time>
+                </div>
+            @empty
+                <p class="empty-state">No payments recorded yet.</p>
+            @endforelse
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="logs-heading">
+        <div class="panel__head">
+            <div>
+                <p class="panel__kicker">Activity</p>
+                <h2 class="panel__title" id="logs-heading">Recent network operations</h2>
+            </div>
+            <a class="panel__meta" href="{{ route('network.logs.index') }}">All logs</a>
+        </div>
+        <div class="panel__body panel__body--flush">
+            @include('network._logs', ['logs' => $recentLogs])
+        </div>
+    </section>
+</div>
 @endsection
+
