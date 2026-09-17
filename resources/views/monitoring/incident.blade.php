@@ -47,6 +47,11 @@
                 <div><dt>Affected connections</dt><dd class="mono-value">{{ $incident->affectedConnections->count() }}</dd></div>
                 <div><dt>Affected customers</dt><dd class="mono-value">{{ $incident->affectedConnections->pluck('customer_id')->unique()->count() }}</dd></div>
             </dl>
+            <div class="cosmic-terminal cosmic-terminal--compact incident__terminal" aria-label="Incident system readout">
+                <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag cosmic-terminal__tag--warn">[INC]</span><span class="cosmic-terminal__label">incident</span><span class="cosmic-terminal__value">{{ $incident->id }} · {{ strtoupper($incident->status) }}</span><span class="cosmic-terminal__cursor" aria-hidden="true"></span></div>
+                <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag">[NET]</span><span class="cosmic-terminal__label">router</span><span class="cosmic-terminal__value">{{ $incident->router?->name ?? '—' }}</span></div>
+                <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag cosmic-terminal__tag--ok">[SYS]</span><span class="cosmic-terminal__label">correlation</span><span class="cosmic-terminal__value">{{ $incident->correlation_count }} observations · {{ $incident->affectedConnections->count() }} connections</span></div>
+            </div>
             @if ($incident->status === 'detected')
                 <form method="post" action="{{ route('monitoring.incidents.acknowledge', $incident) }}" class="section-block">
                     @csrf

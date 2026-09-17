@@ -38,6 +38,35 @@ h2 { margin: 0; color: var(--cl-ink); font-size: var(--cl-text-lg); font-weight:
 h3 { margin: 0; color: var(--cl-ink-2); font-size: var(--cl-text-sm); font-weight: 600; }
 .mono-value, .tabular { font-family: var(--cl-font-label); font-variant-numeric: tabular-nums; }
 
+/* ── Cosmic Terminal Language ─────────────────────────────────
+   A secondary machine register for real operational values. The surrounding
+   product remains sans-first; this surface is reserved for telemetry,
+   lifecycle state, and system-readable context. */
+.cosmic-terminal {
+    display: grid;
+    gap: 6px;
+    padding: var(--cl-space-md) var(--cl-space-lg);
+    border: var(--cl-rule) solid var(--cl-hairline);
+    border-radius: var(--cl-radius-md);
+    color: var(--cl-ink-2);
+    background: var(--cl-canvas-2);
+    font-family: var(--cl-font-label);
+    font-size: var(--cl-text-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+}
+.cosmic-terminal--compact { padding: var(--cl-space-sm) var(--cl-space-md); }
+.cosmic-terminal__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--cl-space-sm); min-width: 0; }
+.cosmic-terminal__label { color: var(--cl-faint); }
+.cosmic-terminal__value { min-width: 0; overflow-wrap: anywhere; color: var(--cl-ink); }
+.cosmic-terminal__tag, .terminal-tag { color: var(--cl-cyan); font-weight: 600; letter-spacing: 0.04em; }
+.cosmic-terminal__tag--ok { color: var(--cl-ok); }
+.cosmic-terminal__tag--warn { color: var(--cl-brass); }
+.cosmic-terminal__tag--fail { color: var(--cl-danger); }
+.cosmic-terminal__cursor { display: inline-block; width: 0.6em; height: 1em; margin-left: 2px; vertical-align: -0.12em; background: currentColor; animation: cl-cursor 900ms steps(2, end) infinite; }
+@keyframes cl-cursor { 50% { opacity: 0; } }
+.panel__meta--terminal { display: inline-flex; align-items: center; gap: 6px; color: var(--cl-muted); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+
 /* Mono UPPERCASE label register — kept to labels, never to prose. */
 .eyebrow, .topbar__eyebrow, .mono, .mono-label, .stat-card__label, .panel__kicker,
 .apparatus__kicker, .stage__label, .metric__label, .console__head, .nav-group__label,
@@ -365,6 +394,7 @@ button[type=submit]:hover, .button--primary:hover { color: var(--cl-canvas); bac
 .incident__list li { display: flex; flex-wrap: wrap; gap: 4px var(--cl-space-sm); padding: 7px 0; border-bottom: var(--cl-rule) solid var(--cl-hairline-soft); font-size: var(--cl-text-sm); }
 .incident__list li:last-child { border-bottom: 0; }
 .incident__list .mono-value { color: var(--cl-muted); }
+.incident__terminal { margin-top: var(--cl-space-md); }
 
 /* Inside a panel the outage record reads as a state-marked row, not a card
    inside a card — one bordered region stays the unit of the reference look.
@@ -387,6 +417,7 @@ button[type=submit]:hover, .button--primary:hover { color: var(--cl-canvas); bac
 .rack__field-label { color: var(--cl-faint); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
 .rack__field-value { color: var(--cl-ink-2); font-family: var(--cl-font-label); font-size: var(--cl-text-sm); font-variant-numeric: tabular-nums; }
 .rack__action { margin-left: auto; }
+.rack__context { flex: 0 0 auto; color: var(--cl-cyan); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); letter-spacing: 0.04em; }
 .console-note { margin: var(--cl-space-sm) 0 0; color: var(--cl-faint); font-size: var(--cl-text-xs); }
 .incident__foot .console-note { margin: 0; }
 .incident__foot .button:last-child { margin-left: auto; }
@@ -522,6 +553,7 @@ html, body { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
     .scroll-progress { transition: none; }
+    .cosmic-terminal__cursor { animation: none; opacity: 1; }
 }
 @media (max-width: 420px) {
     .meta-list { grid-template-columns: minmax(0, 1fr); }
@@ -534,6 +566,7 @@ html, body { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
     .simulation-chip::before, .topbar__mode::before { animation: none; opacity: 1; }
+    .cosmic-terminal__cursor { animation: none; opacity: 1; }
 }
 
 

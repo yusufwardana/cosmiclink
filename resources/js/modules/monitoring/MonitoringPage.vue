@@ -70,6 +70,12 @@ onMounted(load);
         </article>
     </div>
 
+    <div class="cosmic-terminal cosmic-terminal--compact" aria-label="Monitoring system status">
+        <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag">[NET]</span><span class="cosmic-terminal__label">observed_at</span><span class="cosmic-terminal__value">{{ stamp(lastObserved) }}</span><span class="cosmic-terminal__cursor" aria-hidden="true"></span></div>
+        <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag cosmic-terminal__tag--ok">[OK]</span><span class="cosmic-terminal__label">providers</span><span class="cosmic-terminal__value">{{ providers.join(', ') || '—' }}</span></div>
+        <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag" :class="activeOutages.length ? 'cosmic-terminal__tag--warn' : 'cosmic-terminal__tag--ok'">[INC]</span><span class="cosmic-terminal__label">incident_watcher</span><span class="cosmic-terminal__value">{{ activeOutages.length }} active / {{ incidents.length }} total</span></div>
+    </div>
+
     <section class="panel panel--diagnostic section-block--tight" aria-labelledby="routers-heading">
         <div class="panel__head">
             <div>
@@ -81,6 +87,7 @@ onMounted(load);
         <div class="panel__body panel__body--flush">
             <ul class="rack">
                 <li v-for="router in routers" :key="router.subject_id" class="rack__row">
+                    <span class="rack__context" aria-hidden="true">[ROUTER]</span>
                     <span class="rack__id">
                         <span class="rack__name">{{ router.name || 'Unnamed router' }}</span>
                         <span class="rack__sub">{{ router.provider || 'provider unknown' }}</span>
@@ -111,6 +118,7 @@ onMounted(load);
         <div class="panel__body panel__body--flush">
             <ul class="rack">
                 <li v-for="connection in connections" :key="connection.subject_id" class="rack__row">
+                    <span class="rack__context" aria-hidden="true">[PPPOE]</span>
                     <span class="rack__id">
                         <span class="rack__name">{{ connection.name || 'Unknown connection' }}</span>
                         <span class="rack__sub">{{ connection.customer || 'unassigned customer' }} · {{ connection.router || 'no router' }}</span>
@@ -140,6 +148,7 @@ onMounted(load);
         <p v-if="!incidents.length" class="empty-state">No correlated incidents on record. Observations have not crossed the correlation threshold.</p>
         <article v-for="incident in incidents" :key="incident.id" class="incident" :class="[`incident--${incident.status}`, { 'incident--compact': !activeOutages.includes(incident) } ]">
             <div class="incident__head">
+                <span class="rack__context" aria-hidden="true">[INC]</span>
                 <span class="ui-status-badge" :class="`ui-status-badge--${incident.status}`">{{ incident.status }}</span>
                 <span class="incident__router">{{ incident.router?.name || 'Unassigned router' }}</span>
                 <span class="incident__stamp">detected {{ stamp(incident.detected_at) }}</span>

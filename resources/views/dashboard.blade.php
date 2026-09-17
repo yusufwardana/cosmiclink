@@ -39,10 +39,10 @@
     <section class="panel panel--primary" aria-labelledby="fabric-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Network health // 01</p>
+                <p class="panel__kicker">[NET] Network health // 01</p>
                 <h2 class="panel__title" id="fabric-heading">Network health</h2>
             </div>
-            <span class="panel__meta">{{ $onlineRouters }}/{{ $routerCount }} routers available</span>
+            <span class="panel__meta panel__meta--terminal"><span class="terminal-tag">[LIVE]</span>{{ $onlineRouters }}/{{ $routerCount }} routers available</span>
         </div>
         <div class="panel__body panel__body--flush">
             <figure class="apparatus apparatus--compact">
@@ -121,7 +121,7 @@
     <section class="panel panel--action" aria-labelledby="outages-heading">
         <div class="panel__head">
             <div>
-                <p class="panel__kicker">Operations</p>
+                <p class="panel__kicker">[INC] Operations</p>
                 <h2 class="panel__title" id="outages-heading">Active outages</h2>
             </div>
             <a class="panel__meta" href="{{ route('monitoring.index') }}#outage-incidents">All incidents</a>
@@ -130,6 +130,7 @@
             @forelse ($activeIncidents as $incident)
                 <article class="incident incident--{{ $incident->status }}">
                     <div class="incident__head">
+                        <span class="rack__context" aria-hidden="true">[INC]</span>
                         <span class="ui-status-badge ui-status-badge--{{ $incident->status }}">{{ $incident->status }}</span>
                         <span class="incident__router">{{ $incident->router?->name ?? 'Unassigned router' }}</span>
                         <span class="incident__stamp">{{ $incident->detected_at?->format('Y-m-d H:i') }}</span>
