@@ -22,6 +22,7 @@ use App\Services\Messaging\FakeMessagingProvider;
 use App\Services\Messaging\MessagingProvider;
 use App\Services\Monitoring\Contracts\MonitoringDriver;
 use App\Services\Monitoring\FakeMonitoringDriver;
+use App\Services\Monitoring\GoMonitoringDriver;
 use App\Services\Network\FakeNetworkDriver;
 use App\Services\Network\GoNetworkDiscoveryClient;
 use App\Services\Network\GoNetworkDriver;
@@ -59,11 +60,11 @@ class AppServiceProvider extends ServiceProvider
             return $app->make(FakeMessagingProvider::class);
         });
         $this->app->bind(MonitoringDriver::class, function ($app) {
-            if (config('monitoring.driver') !== 'fake') {
-                throw new \RuntimeException('No monitoring driver is configured.');
-            }
-
-            return $app->make(FakeMonitoringDriver::class);
+            return match (config('monitoring.driver')) {
+                'fake' => $app->make(FakeMonitoringDriver::class),
+                'engine' => $app->make(GoMonitoringDriver::class),
+                default => throw new \RuntimeException('Unsupported monitoring driver configuration.'),
+            };
         });
     }
 

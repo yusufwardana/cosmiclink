@@ -57,7 +57,7 @@ class ApiController extends Controller
             }
         });
 
-        return response()->json(['data' => ['summary' => ['routers' => $observations->where('subject_type', 'router')->groupBy('health_state')->map->count(), 'connections' => $observations->where('subject_type', 'connection')->groupBy('health_state')->map->count()], 'routers' => MonitoringResource::collection($observations->where('subject_type', 'router')->values()), 'connections' => MonitoringResource::collection($observations->where('subject_type', 'connection')->values()), 'incidents' => OutageIncidentResource::collection(OutageIncident::where('tenant_id', $tenant)->with(['router', 'affectedConnections.customer'])->latest('detected_at')->get())]]);
+        return response()->json(['data' => ['source' => config('monitoring.driver') === 'engine' ? 'REAL' : 'SIMULATION', 'driver' => config('monitoring.driver'), 'freshness_seconds' => config('monitoring.freshness_seconds'), 'summary' => ['routers' => $observations->where('subject_type', 'router')->groupBy('health_state')->map->count(), 'connections' => $observations->where('subject_type', 'connection')->groupBy('health_state')->map->count()], 'routers' => MonitoringResource::collection($observations->where('subject_type', 'router')->values()), 'connections' => MonitoringResource::collection($observations->where('subject_type', 'connection')->values()), 'incidents' => OutageIncidentResource::collection(OutageIncident::where('tenant_id', $tenant)->with(['router', 'affectedConnections.customer'])->latest('detected_at')->get())]]);
     }
 
     public function check(MonitoringService $monitoring)

@@ -1,0 +1,57 @@
+<?php
+
+namespace App\Services\Network;
+
+use App\Models\Router;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
+use Throwable;
+
+class GoNetworkMonitoringClient
+{
+    public function collect(Router $router): array
+    {
+        $payload = ['router' => [
+            'host' => $router->host,
+            'port' => (int) $router->api_port,
+            'username' => $router->username,
+            'password' => $router->password(),
+            'transport' => config('network.routeros.transport'),
+            'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
+            'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
+            'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
+        ]];
+
+        try {
+            $response = Http::acceptJson()->asJson()
+                ->withToken((string) config('network.go.token'))
+                ->connectTimeout((int) config('network.go.connect_timeout_seconds'))
+                ->timeout((int) config('network.go.timeout_seconds'))
+                ->post(rtrim((string) config('network.go.url'), '/').'/api/v1/monitoring/collect', $payload);
+        } catch (ConnectionException $exception) {
+            return ['reachable' => false, 'failure' => ['code' => str_contains(strtolower($exception->getMessage()), 'timed out') ? 'MONITORING_TIMEOUT' : 'ENGINE_UNAVAILABLE', 'message' => 'Go Network Engine is unavailable.']];
+        } catch (Throwable) {
+            return ['reachable' => false, 'failure' => ['code' => 'ENGINE_UNAVAILABLE', 'message' => 'Go Network Engine monitoring failed.']];
+        }
+
+        $body = $response->json();
+        if (! is_array($body) || ! array_key_exists('reachable', $body) || ! is_bool($body['reachable'])) {
+            return ['reachable' => false, 'failure' => ['code' => 'ENGINE_UNAVAILABLE', 'message' => 'Go Network Engine returned an invalid monitoring response.']];
+        }
+
+        return $this->sanitize($body);
+    }
+
+    private function sanitize(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if (in_array(strtolower((string) $key), ['password', 'pass', 'secret', 'token', 'authorization', 'credential', 'credentials'], true)) {
+                unset($data[$key]);
+            } elseif (is_array($value)) {
+                $data[$key] = $this->sanitize($value);
+            }
+        }
+
+        return $data;
+    }
+}

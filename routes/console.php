@@ -1,10 +1,21 @@
 <?php
 
+use App\Services\Monitoring\MonitoringService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('network-agents:recover-jobs')->everyMinute()->withoutOverlapping();
+Schedule::command('monitoring:run')->everyMinute()->withoutOverlapping();
+Schedule::command('monitoring:prune-observations')->daily()->withoutOverlapping();
+
+Artisan::command('monitoring:run', function (MonitoringService $monitoring) {
+    $this->info('Monitoring observations written: '.$monitoring->runScheduled());
+})->purpose('Collect read-only router and PPPoE health observations');
+
+Artisan::command('monitoring:prune-observations', function (MonitoringService $monitoring) {
+    $this->info('Pruned observations: '.$monitoring->prune());
+})->purpose('Prune expired health observations');
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

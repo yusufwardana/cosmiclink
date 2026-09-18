@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"cosmiclink/network-engine/internal/monitoring"
 	"cosmiclink/network-engine/internal/network"
 )
 
@@ -22,10 +23,20 @@ type Server struct {
 	token       string
 	logger      *slog.Logger
 	idempotency *idempotencyStore
+	monitoring  monitoring.Provider
 }
 
 func New(provider network.Provider, discovery network.DiscoveryProvider, token string, logger *slog.Logger) *Server {
 	return &Server{provider: provider, discovery: discovery, token: token, logger: logger, idempotency: &idempotencyStore{results: make(map[string]network.Result)}}
+}
+
+func NewWithMonitoring(provider network.Provider, discovery network.DiscoveryProvider, monitor monitoring.Provider, token string, logger *slog.Logger) *Server {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	server := New(provider, discovery, token, logger)
+	server.monitoring = monitor
+	return server
 }
 
 func (server *Server) Handler() http.Handler {
@@ -38,9 +49,41 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/profile", server.protected("CHANGE_PROFILE", server.execute))
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/disconnect", server.protected("DISCONNECT_SESSION", server.execute))
 	mux.HandleFunc("POST /v1/discovery/routers/{router_ref}", server.discoveryProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/collect", server.monitoringProtected)
 	mux.HandleFunc("GET /v1/discovery/safety/mutation-count", server.mutationCount)
 
 	return mux
+}
+
+type monitoringRequest struct {
+	Router monitoring.RouterTarget `json:"router"`
+}
+
+func (server *Server) monitoringProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"reachable": false, "failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	if server.monitoring == nil {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"reachable": false, "failure": map[string]string{"code": "ENGINE_UNAVAILABLE", "message": "Monitoring provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || command.Router.Host == "" {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"reachable": false, "failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid monitoring request"}})
+		return
+	}
+	snapshot, err := server.monitoring.Collect(request.Context(), command.Router)
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"reachable": true, "collected_at": snapshot.CollectedAt, "identity": snapshot.Router.Identity, "version": snapshot.Router.Version, "architecture": snapshot.Router.Architecture, "board": snapshot.Router.BoardName, "uptime": snapshot.Router.UptimeSeconds, "cpu_load_percent": snapshot.Router.CPULoad, "memory_total_bytes": snapshot.Router.MemoryTotal, "memory_free_bytes": snapshot.Router.MemoryFree, "ppp_active": snapshot.PPPSessions})
 }
 
 func (server *Server) mutationCount(writer http.ResponseWriter, request *http.Request) {

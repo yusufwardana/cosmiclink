@@ -10,6 +10,7 @@ type Config struct {
 	Address                  string
 	Token                    string
 	DiscoveryProvider        string
+	MonitoringProvider       string
 	AllowInsecureRouterOSTLS bool
 }
 
@@ -18,6 +19,7 @@ func FromEnvironment() (Config, error) {
 		Address:                  valueOrDefault("GO_NETWORK_ENGINE_ADDRESS", "127.0.0.1:8787"),
 		Token:                    os.Getenv("GO_NETWORK_ENGINE_TOKEN"),
 		DiscoveryProvider:        valueOrDefault("NETWORK_DISCOVERY_PROVIDER", "fake"),
+		MonitoringProvider:       valueOrDefault("MONITORING_PROVIDER", "fake"),
 		AllowInsecureRouterOSTLS: os.Getenv("APP_ENV") == "local" && boolValue("GO_NETWORK_ENGINE_ALLOW_INSECURE_ROUTEROS_TLS"),
 	}
 	if config.Token == "" {

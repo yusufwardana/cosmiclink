@@ -18,6 +18,7 @@ const metric = (value, suffix = '') => (value === null || value === undefined ||
 const stamp = (value) => (value ? String(value).replace('T', ' ').slice(0, 16) : '—');
 const lastObserved = computed(() => [...routers.value, ...connections.value].map((item) => item.observed_at).filter(Boolean).sort().pop());
 const providers = computed(() => [...new Set([...routers.value, ...connections.value].map((item) => item.provider).filter(Boolean))]);
+const source = computed(() => data.value.source || (props.simulation ? 'SIMULATION' : 'REAL'));
 
 /* Detected → acknowledged → resolved, driven by the incident record only. */
 const stages = (incident) => [
@@ -38,9 +39,10 @@ onMounted(load);
         <div>
             <p class="eyebrow"><span class="eyebrow__ord">02</span><span class="eyebrow__sep">//</span>Network diagnostics</p>
             <h1>Monitoring console</h1>
-            <p class="page-header__meta">Router and connection health observations, correlated into outage incidents server-side. This console reads and simulates; Laravel owns the rules.</p>
+            <p class="page-header__meta">Router and connection health observations, correlated into outage incidents server-side. Laravel owns the rules.</p>
         </div>
         <div class="page-header__aside">
+            <span class="ui-status-badge" :class="`ui-status-badge--${source === 'REAL' ? 'online' : 'degraded'}`">{{ source }}</span>
             <button type="button" class="button button--primary button--sm" :disabled="loading" @click="run('check', '/api/v1/monitoring/check')">{{ loading ? 'Checking…' : 'Run monitoring check' }}</button>
         </div>
     </div>

@@ -38,8 +38,29 @@ class MonitoringService
         return $observations;
     }
 
+    public function runScheduled(): int
+    {
+        $count = 0;
+        User::query()->whereNotNull('tenant_id')->orderBy('id')->get()->groupBy('tenant_id')->each(function ($users, $tenantId) use (&$count) {
+            $count += $this->observeTenant((int) $tenantId, $users->first())->count();
+        });
+
+        return $count;
+    }
+
+    public function prune(): int
+    {
+        return HealthObservation::where('observed_at', '<', now()->subDays((int) config('monitoring.retention_days', 14)))->delete();
+    }
+
     private function persist(string $subjectType, int $subjectId, int $tenantId, HealthObservationResult $result): HealthObservation
     {
+        $latest = HealthObservation::where('tenant_id', $tenantId)->where('subject_type', $subjectType)->where('subject_id', $subjectId)->latest('observed_at')->first();
+        $checkpointDue = ! $latest || $latest->observed_at->lt(now()->subSeconds((int) config('monitoring.checkpoint_seconds', 300)));
+        if ($latest && ! $checkpointDue && $latest->health_state === $result->state->value) {
+            return $latest;
+        }
+
         return HealthObservation::create(['tenant_id' => $tenantId, 'subject_type' => $subjectType, 'subject_id' => $subjectId, 'health_state' => $result->state->value, 'reachable' => $result->reachable, 'online' => $result->online, 'latency_ms' => $result->latencyMs, 'packet_loss_percent' => $result->packetLossPercent, 'observed_at' => $result->observedAt, 'provider' => config('monitoring.driver'), 'metadata' => $result->metadata]);
     }
 }
