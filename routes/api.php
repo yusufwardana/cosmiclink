@@ -21,4 +21,5 @@ Route::prefix('v1/agent')->group(function () {
     Route::post('/heartbeat', [AgentApiController::class, 'heartbeat']);
     Route::post('/jobs/claim', [AgentApiController::class, 'claim']);
     Route::post('/jobs/{job}/result', [AgentApiController::class, 'result']);
+    Route::post('/jobs/{job}/renew', [AgentApiController::class, 'renew']);
 });

@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\Network\NetworkAgentHealthService;
 use Illuminate\Database\Eloquent\Model;
 
 class NetworkAgent extends Model
 {
-    protected $fillable = ['tenant_id', 'identifier', 'name', 'token_hash', 'version', 'capabilities', 'metadata', 'last_seen_at'];
+    protected $fillable = ['tenant_id', 'identifier', 'name', 'token_id', 'token_hash', 'version', 'capabilities', 'metadata', 'last_seen_at', 'observed_health'];
 
     protected $hidden = ['token_hash'];
 
@@ -22,8 +23,18 @@ class NetworkAgent extends Model
         return $this->hasMany(NetworkAgentJob::class);
     }
 
+    public function currentJob()
+    {
+        return $this->hasOne(NetworkAgentJob::class)->ofMany(['id' => 'max'], fn ($query) => $query->where('status', NetworkAgentJob::RUNNING));
+    }
+
+    public function recentFailure()
+    {
+        return $this->hasOne(NetworkAgentJob::class)->ofMany(['id' => 'max'], fn ($query) => $query->whereNotNull('error_code'));
+    }
+
     public function isOnline(): bool
     {
-        return $this->last_seen_at?->greaterThan(now()->subMinutes(5)) ?? false;
+        return app(NetworkAgentHealthService::class)->health($this) === 'ONLINE';
     }
 }

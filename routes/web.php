@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/routers/{router}/test', [RouterController::class, 'test'])->name('routers.test');
     Route::get('/network/accounts', [NetworkAccountController::class, 'index'])->name('network.accounts.index');
     Route::get('/network/agents', [NetworkAgentController::class, 'index'])->name('network.agents.index');
+    Route::get('/network/agents/{agent}', [NetworkAgentController::class, 'show'])->name('network.agents.show');
     Route::get('/network/discovery', [NetworkDiscoveryController::class, 'index'])->name('network.discovery.index');
     Route::post('/network/discovery/routers/{router}', [NetworkDiscoveryController::class, 'discover'])->name('network.discovery.run');
     Route::post('/network/discovery/resources/{resource}/adopt', [NetworkDiscoveryController::class, 'adopt'])->name('network.discovery.adopt');

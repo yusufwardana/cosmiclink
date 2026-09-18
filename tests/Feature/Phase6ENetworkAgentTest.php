@@ -25,6 +25,7 @@ class Phase6ENetworkAgentTest extends TestCase
         $router->setPassword('router-secret');
         $router->save();
         [$agent, $token] = app(NetworkAgentService::class)->enroll($tenant, 'LAN Agent');
+        $agent = app(NetworkAgentService::class)->heartbeat($agent, ['version' => '6e-test', 'capabilities' => ['discovery.routeros.readonly']]);
         $job = app(NetworkAgentService::class)->createDiscoveryJob($router, $agent, $user);
 
         $this->assertNotSame($token, $agent->token_hash);
@@ -56,6 +57,7 @@ class Phase6ENetworkAgentTest extends TestCase
         $user = User::factory()->for($tenantA)->create();
         [$agentA, $tokenA] = app(NetworkAgentService::class)->enroll($tenantA, 'A');
         [$agentB, $tokenB] = app(NetworkAgentService::class)->enroll($tenantB, 'B');
+        $agentA = app(NetworkAgentService::class)->heartbeat($agentA, ['version' => '6e-test', 'capabilities' => ['discovery.routeros.readonly']]);
         $job = app(NetworkAgentService::class)->createDiscoveryJob($router, $agentA, $user);
 
         $this->withToken('bad-token')->postJson('/api/v1/agent/jobs/claim')->assertUnauthorized();
@@ -73,6 +75,7 @@ class Phase6ENetworkAgentTest extends TestCase
         $router->save();
         $user = User::factory()->for($tenant)->create();
         [$agent, $token] = app(NetworkAgentService::class)->enroll($tenant, 'LAN');
+        $agent = app(NetworkAgentService::class)->heartbeat($agent, ['version' => '6e-test', 'capabilities' => ['discovery.routeros.readonly']]);
         $this->expectException(\InvalidArgumentException::class);
         try {
             app(NetworkAgentService::class)->createJob($router, $agent, $user, 'EXECUTE');
