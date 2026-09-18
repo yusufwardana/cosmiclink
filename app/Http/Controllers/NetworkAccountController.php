@@ -59,5 +59,6 @@ class NetworkAccountController extends Controller
     private function authorizeAccount(NetworkAccount $account): void
     {
         abort_unless($account->tenant_id === Auth::user()->tenant_id, 403);
+        abort_unless(! data_get($account->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
     }
 }

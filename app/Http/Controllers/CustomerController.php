@@ -36,6 +36,10 @@ class CustomerController extends Controller
         $customer->load(['connections.internetPackage', 'connections.router', 'connections.networkAccount', 'invoices', 'payments', 'messageLogs']);
         $health = HealthObservation::where('tenant_id', Auth::user()->tenant_id)->where('subject_type', 'connection')->whereIn('subject_id', $customer->connections->pluck('id'))->latest('observed_at')->get()->unique('subject_id')->keyBy('subject_id');
         $customer->connections->each(fn ($connection) => $connection->setRelation('networkHealth', $health->get($connection->id)));
+        $discovery = $customer->connections->flatMap(fn ($connection) => $connection->discoveredNetworkResources()->latest('last_seen_at')->get()->take(1))->keyBy('customer_connection_id');
+        $customer->connections->each(function ($connection) use ($discovery) {
+            $connection->setRelation('networkDiscovery', $discovery->get($connection->id));
+        });
         $recentIncidents = OutageIncident::where('tenant_id', Auth::user()->tenant_id)->whereIn('status', ['detected', 'acknowledged', 'resolved'])->whereHas('affectedConnections', fn ($query) => $query->whereIn('customer_connections.id', $customer->connections->pluck('id')))->with('router')->latest('detected_at')->limit(5)->get();
         $recentLogs = NetworkOperationLog::where('tenant_id', Auth::user()->tenant_id)->whereIn('customer_connection_id', $customer->connections->pluck('id'))->with('customerConnection')->latest('created_at')->limit(10)->get();
 

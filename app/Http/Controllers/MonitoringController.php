@@ -18,7 +18,9 @@ class MonitoringController extends Controller
     {
         $tenantId = Auth::user()->tenant_id;
         $routers = Router::where('tenant_id', $tenantId)->get();
-        $connections = CustomerConnection::where('tenant_id', $tenantId)->whereNotNull('provisioned_at')->with(['customer', 'router', 'networkAccount'])->get();
+        $connections = CustomerConnection::where('tenant_id', $tenantId)->where(function ($query) {
+            $query->whereNotNull('provisioned_at')->orWhereHas('networkAccount', fn ($account) => $account->whereJsonContains('metadata->adopted_from_discovery', true));
+        })->with(['customer', 'router', 'networkAccount'])->get();
         $routerHealth = HealthObservation::where('tenant_id', $tenantId)->where('subject_type', 'router')->whereIn('subject_id', $routers->pluck('id'))->latest('observed_at')->get()->unique('subject_id')->keyBy('subject_id');
         $connectionHealth = HealthObservation::where('tenant_id', $tenantId)->where('subject_type', 'connection')->whereIn('subject_id', $connections->pluck('id'))->latest('observed_at')->get()->unique('subject_id')->keyBy('subject_id');
         $routers->each(fn (Router $router) => $router->setRelation('networkHealth', $routerHealth->get($router->id)));

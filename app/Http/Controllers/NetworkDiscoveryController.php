@@ -21,7 +21,7 @@ class NetworkDiscoveryController extends Controller
     {
         $tenant = Auth::user()->tenant_id;
         $routers = Router::where('tenant_id', $tenant)->with('discoverySnapshots')->get();
-        $resources = DiscoveredNetworkResource::where('tenant_id', $tenant)->with('router')->latest('last_seen_at')->get();
+        $resources = DiscoveredNetworkResource::where('tenant_id', $tenant)->with(['router', 'customerConnection.customer', 'networkAccount'])->latest('last_seen_at')->get();
         $latestDiscovery = $routers->mapWithKeys(function (Router $router) {
             $snapshot = $router->discoverySnapshots->where('status', 'success')->sortByDesc('id')->first();
 
@@ -31,14 +31,18 @@ class NetworkDiscoveryController extends Controller
             ] : null];
         });
 
-        $statuses = [];
+        $results = [];
         foreach ($routers as $router) {
             foreach ($reconciliation->reconcile($router) as $result) {
-                $statuses[$result['resource']->id] = $result['status'];
+                $results[$result['resource']->id] = $result;
             }
         }
 
-        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'connections' => CustomerConnection::where('tenant_id', $tenant)->get(), 'latestDiscovery' => $latestDiscovery, 'agents' => NetworkAgent::where('tenant_id', $tenant)->orderBy('name')->get(), 'agentJobs' => NetworkAgentJob::where('tenant_id', $tenant)->with(['agent', 'router'])->latest()->take(20)->get()]);
+        $connections = CustomerConnection::where('tenant_id', $tenant)->with(['customer', 'networkAccount'])->get();
+        $statuses = collect($results)->mapWithKeys(fn (array $result, $id) => [$id => $result['status']]);
+        $suggestions = collect($results)->mapWithKeys(fn (array $result, $id) => [$id => $result['suggestion'] ?? null]);
+
+        return view('network.discovery', ['routers' => $routers, 'resources' => $resources, 'reconciliation' => $statuses, 'suggestions' => $suggestions, 'connections' => $connections, 'latestDiscovery' => $latestDiscovery, 'agents' => NetworkAgent::where('tenant_id', $tenant)->orderBy('name')->get(), 'agentJobs' => NetworkAgentJob::where('tenant_id', $tenant)->with(['agent', 'router'])->latest()->take(20)->get()]);
     }
 
     public function discover(Request $request, Router $router, NetworkDiscoveryService $service, NetworkAgentService $agents)
@@ -56,13 +60,25 @@ class NetworkDiscoveryController extends Controller
         return back()->with($snapshot->status === 'success' ? 'status' : 'error', $snapshot->status === 'success' ? 'Read-only discovery completed.' : $snapshot->error);
     }
 
-    public function adopt(Request $request, DiscoveredNetworkResource $resource, AdoptDiscoveredNetworkResource $adopt)
+    public function adopt(Request $request, int $resource, AdoptDiscoveredNetworkResource $adopt)
     {
-        abort_unless($resource->tenant_id === Auth::user()->tenant_id, 403);
+        $resource = DiscoveredNetworkResource::find($resource);
+        abort_unless($resource && $resource->tenant_id === Auth::user()->tenant_id, 403);
         $data = $request->validate(['customer_connection_id' => ['required', 'integer']]);
-        $connection = CustomerConnection::where('tenant_id', Auth::user()->tenant_id)->findOrFail($data['customer_connection_id']);
+        $connection = CustomerConnection::find($data['customer_connection_id']);
+        abort_unless($connection && $connection->tenant_id === Auth::user()->tenant_id, 403);
         $adopt->handle($resource, $connection, Auth::user());
 
         return back()->with('status', 'Existing network resource adopted without router changes.');
+    }
+
+    public function unadopt(Request $request, int $resource, AdoptDiscoveredNetworkResource $adopt)
+    {
+        $resource = DiscoveredNetworkResource::find($resource);
+        abort_unless($resource && $resource->tenant_id === Auth::user()->tenant_id, 403);
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
+        $adopt->unadopt($resource, Auth::user(), $data['reason'] ?? null);
+
+        return back()->with('status', 'Local adoption reversed without router changes.');
     }
 }

@@ -32,7 +32,9 @@ class MonitoringService
         abort_unless($tenantId === $user->tenant_id, 403);
         $observations = collect();
         Router::where('tenant_id', $tenantId)->get()->each(fn (Router $router) => $observations->push($this->observeRouter($router, $user)));
-        CustomerConnection::where('tenant_id', $tenantId)->whereNotNull('provisioned_at')->with(['router', 'customer'])->get()->each(fn (CustomerConnection $connection) => $observations->push($this->observeConnection($connection, $user)));
+        CustomerConnection::where('tenant_id', $tenantId)->where(function ($query) {
+            $query->whereNotNull('provisioned_at')->orWhereHas('networkAccount', fn ($account) => $account->whereJsonContains('metadata->adopted_from_discovery', true));
+        })->with(['router', 'customer', 'networkAccount'])->get()->each(fn (CustomerConnection $connection) => $observations->push($this->observeConnection($connection, $user)));
         $this->correlation->correlate($tenantId, $user);
 
         return $observations;

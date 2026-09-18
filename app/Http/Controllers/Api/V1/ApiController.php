@@ -8,12 +8,15 @@ use App\Http\Resources\MonitoringResource;
 use App\Http\Resources\OutageIncidentResource;
 use App\Models\Customer;
 use App\Models\CustomerConnection;
+use App\Models\DiscoveredNetworkResource;
 use App\Models\HealthObservation;
 use App\Models\Invoice;
 use App\Models\NetworkAccount;
 use App\Models\OutageIncident;
 use App\Models\Router;
 use App\Services\Monitoring\MonitoringService;
+use App\Services\Network\AdoptDiscoveredNetworkResource;
+use App\Services\Network\NetworkReconciliationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -48,7 +51,9 @@ class ApiController extends Controller
     {
         $tenant = Auth::user()->tenant_id;
         $routers = Router::where('tenant_id', $tenant)->get();
-        $connections = CustomerConnection::where('tenant_id', $tenant)->whereNotNull('provisioned_at')->with(['router', 'customer'])->get();
+        $connections = CustomerConnection::where('tenant_id', $tenant)->where(function ($query) {
+            $query->whereNotNull('provisioned_at')->orWhereHas('networkAccount', fn ($account) => $account->whereJsonContains('metadata->adopted_from_discovery', true));
+        })->with(['router', 'customer'])->get();
         $observations = HealthObservation::where('tenant_id', $tenant)->latest('observed_at')->get()->unique(fn ($item) => $item->subject_type.':'.$item->subject_id);
         $observations->each(function ($observation) {
             $observation->setRelation('subject', $observation->subject);
@@ -58,6 +63,37 @@ class ApiController extends Controller
         });
 
         return response()->json(['data' => ['source' => config('monitoring.driver') === 'engine' ? 'REAL' : 'SIMULATION', 'driver' => config('monitoring.driver'), 'freshness_seconds' => config('monitoring.freshness_seconds'), 'summary' => ['routers' => $observations->where('subject_type', 'router')->groupBy('health_state')->map->count(), 'connections' => $observations->where('subject_type', 'connection')->groupBy('health_state')->map->count()], 'routers' => MonitoringResource::collection($observations->where('subject_type', 'router')->values()), 'connections' => MonitoringResource::collection($observations->where('subject_type', 'connection')->values()), 'incidents' => OutageIncidentResource::collection(OutageIncident::where('tenant_id', $tenant)->with(['router', 'affectedConnections.customer'])->latest('detected_at')->get())]]);
+    }
+
+    public function reconciliation(NetworkReconciliationService $reconciliation)
+    {
+        $tenant = Auth::user()->tenant_id;
+        $items = Router::where('tenant_id', $tenant)->get()->flatMap(fn (Router $router) => $reconciliation->reconcile($router));
+
+        return response()->json(['data' => $items->map(fn (array $item) => [
+            'resource' => $item['resource']->only(['id', 'router_id', 'name', 'resource_type', 'management_state', 'last_seen_at', 'normalized_data']),
+            'status' => $item['status'],
+            'suggestion' => $item['suggestion'] ?? null,
+        ])->values()]);
+    }
+
+    public function adoptReconciliation(Request $request, int $resource, AdoptDiscoveredNetworkResource $adopt)
+    {
+        $model = DiscoveredNetworkResource::where('tenant_id', Auth::user()->tenant_id)->findOrFail($resource);
+        $data = $request->validate(['customer_connection_id' => ['required', 'integer']]);
+        $connection = CustomerConnection::where('tenant_id', Auth::user()->tenant_id)->findOrFail($data['customer_connection_id']);
+        $adopt->handle($model, $connection, Auth::user());
+
+        return response()->json(['message' => 'Existing network resource adopted without router changes.']);
+    }
+
+    public function unadoptReconciliation(Request $request, int $resource, AdoptDiscoveredNetworkResource $adopt)
+    {
+        $model = DiscoveredNetworkResource::where('tenant_id', Auth::user()->tenant_id)->findOrFail($resource);
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
+        $adopt->unadopt($model, Auth::user(), $data['reason'] ?? null);
+
+        return response()->json(['message' => 'Local adoption reversed without router changes.']);
     }
 
     public function check(MonitoringService $monitoring)

@@ -86,6 +86,19 @@
                                     <span class="ui-status-badge ui-status-badge--{{ $health }}">{{ $health }}</span>
                                 </span>
                                 <span class="rack__field">
+                                    <span class="rack__field-label">Management</span>
+                                    <span class="ui-status-badge">{{ $connection->networkDiscovery?->management_state ?? ($connection->provisioned_at ? 'LEGACY / PROVISIONED' : 'UNMAPPED') }}</span>
+                                    @if ($connection->networkDiscovery?->management_state === 'ADOPTED')
+                                        <span class="cell-sub">Network control: DISABLED · Future controlled management: NOT ENABLED</span>
+                                    @endif
+                                </span>
+                                @if ($connection->networkDiscovery)
+                                    <span class="rack__field">
+                                        <span class="rack__field-label">Reconciliation</span>
+                                        <span class="rack__field-value">{{ $connection->networkDiscovery->last_seen_at?->format('Y-m-d H:i') ?? '—' }}</span>
+                                    </span>
+                                @endif
+                                <span class="rack__field">
                                     <span class="rack__field-label">Checked</span>
                                     <span class="rack__field-value">{{ $connection->networkHealth?->observed_at?->format('Y-m-d H:i') ?? 'never' }}</span>
                                 </span>

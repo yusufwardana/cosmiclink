@@ -9,6 +9,9 @@ Route::prefix('v1')->middleware(['web', 'auth'])->group(function () {
     Route::get('/customers', [ApiController::class, 'customers'])->name('api.v1.customers.index');
     Route::get('/customers/{customer}', [ApiController::class, 'customer'])->name('api.v1.customers.show');
     Route::get('/monitoring', [ApiController::class, 'monitoring'])->name('api.v1.monitoring.index');
+    Route::get('/reconciliation', [ApiController::class, 'reconciliation'])->name('api.v1.reconciliation.index');
+    Route::post('/reconciliation/{resource}/adopt', [ApiController::class, 'adoptReconciliation'])->name('api.v1.reconciliation.adopt');
+    Route::post('/reconciliation/{resource}/unadopt', [ApiController::class, 'unadoptReconciliation'])->name('api.v1.reconciliation.unadopt');
     Route::post('/monitoring/check', [ApiController::class, 'check'])->name('api.v1.monitoring.check');
     Route::post('/monitoring/routers/{router}/simulation', [ApiController::class, 'simulateRouter'])->name('api.v1.monitoring.routers.simulation');
     Route::post('/monitoring/connections/{connection}/simulation', [ApiController::class, 'simulateConnection'])->name('api.v1.monitoring.connections.simulation');

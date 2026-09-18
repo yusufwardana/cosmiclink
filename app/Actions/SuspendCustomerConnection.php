@@ -14,6 +14,7 @@ class SuspendCustomerConnection
 
     public function handle(CustomerConnection $connection, ?Invoice $invoice, User $user): BillingAutomationAttempt
     {
+        abort_unless(! data_get($connection->networkAccount?->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
         $attempt = BillingAutomationAttempt::create(['tenant_id' => $connection->tenant_id, 'invoice_id' => $invoice?->id, 'customer_connection_id' => $connection->id, 'action' => 'suspend', 'status' => 'pending', 'attempted_at' => now()]);
         $result = $this->operations->changeStatus($connection->networkAccount, 'disabled', $user, $connection);
         if ($result->successful) {

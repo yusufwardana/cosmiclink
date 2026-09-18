@@ -13,6 +13,7 @@ class ReactivateCustomerConnection
 
     public function handle(CustomerConnection $connection, User $user, ?int $invoiceId = null): BillingAutomationAttempt
     {
+        abort_unless(! data_get($connection->networkAccount?->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
         $attempt = BillingAutomationAttempt::create(['tenant_id' => $connection->tenant_id, 'invoice_id' => $invoiceId, 'customer_connection_id' => $connection->id, 'action' => 'reactivate', 'status' => 'pending', 'attempted_at' => now()]);
         $result = $this->operations->changeStatus($connection->networkAccount, 'active', $user, $connection);
         if ($result->successful) {

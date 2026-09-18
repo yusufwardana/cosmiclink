@@ -14,7 +14,7 @@ class ProcessOverdueBilling
         $count = 0;
         Invoice::where('tenant_id', $tenantId)->where('status', 'overdue')->where('paid_amount', '<', \DB::raw('total'))->with('connection.networkAccount')->get()->each(function (Invoice $invoice) use ($user, &$count) {
             $connection = $invoice->connection;
-            if ($connection && $connection->status === 'active' && $connection->provisioned_at && ! $connection->automationAttempts()->where('action', 'suspend')->where('status', 'success')->exists()) {
+            if ($connection && $connection->status === 'active' && $connection->provisioned_at && ! data_get($connection->networkAccount?->metadata, 'adopted_from_discovery', false) && ! $connection->automationAttempts()->where('action', 'suspend')->where('status', 'success')->exists()) {
                 $this->suspend->handle($connection, $invoice, $user);
                 $count++;
             }
