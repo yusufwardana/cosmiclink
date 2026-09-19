@@ -16,7 +16,7 @@ class SuspendCustomerConnection
     {
         abort_unless(! data_get($connection->networkAccount?->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
         $attempt = BillingAutomationAttempt::create(['tenant_id' => $connection->tenant_id, 'invoice_id' => $invoice?->id, 'customer_connection_id' => $connection->id, 'action' => 'suspend', 'status' => 'pending', 'attempted_at' => now()]);
-        $result = $this->operations->changeStatus($connection->networkAccount, 'disabled', $user, $connection);
+        $result = $this->operations->changeStatusForBilling($connection->networkAccount, 'disabled', $user, $connection);
         if ($result->successful) {
             $connection->update(['status' => 'suspended', 'suspended_at' => now(), 'suspension_reason' => 'billing_overdue']);
             $attempt->update(['status' => 'success', 'completed_at' => now()]);
