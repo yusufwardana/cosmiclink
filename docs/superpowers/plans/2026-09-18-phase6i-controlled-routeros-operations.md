@@ -1061,3 +1061,133 @@ Task 1 (RouterOS operation allowlist / provider-registration migration groundwor
 # PHASE 6I PLAN — READY
 
 Summary: MANAGED is a narrow three-operation manual authorization; unknown PPPoE passwords are acceptable for that set; the global mutation switch is default-off; `MATCHED` fresh reconciliation and fresh `ONLINE` router health are mandatory; Phase 2 billing is isolated from real writes; idempotency and unknown outcomes fail closed; migration is YES for implementation; expected changes are centralized Laravel gate/service/policies/controllers/config, the existing Go API/provider boundary, and Blade-only safety UI; future hardware acceptance uses a manually designated test account and expected-delta fingerprints.
+
+---
+
+# TASK 1 IMPLEMENTATION EVIDENCE
+
+## 57. Task 1 — safe RouterOS mutation provider boundary
+
+Implemented on top of the verified authorization prerequisite. Task 1 is architecture only: it establishes the typed operation allowlist and the mutation-provider selection/registration boundary. It adds **no executable RouterOS write path** and performs **zero device I/O**.
+
+### 57.1 Starting state
+
+| Item | Value |
+| --- | --- |
+| HEAD before Task 1 | `b4c5894601e484a1576e92f814c4a1a4b0ad8b0f` — `Harden network operation authorization before Phase 6I` |
+| Parent chain | `b4c5894` → `4a3041e` (plan) → `55fe60a` (Phase 6H) |
+| Worktree before edits | clean except gitignored runtime files |
+| Files changed by Task 1 | 15 paths: 4 Go files modified, 9 Go files added, plus the `.env.example` template entry and this plan document — **no PHP, Blade, Vue, migration, or Laravel route/config-file change** |
+
+The five pre-Task 1 audit findings were re-confirmed against disk before editing, not from notes: `cmd/server/main.go` hard-wired `provider.NewFakeProvider()` into `api.NewWithMonitoring(...)`; `internal/config/config.go` had no mutation selection at all; `provider.RouterOSTransport` was `Connect/Read/Close` only; `internal/monitoring` imports that read-only shape as its own `monitoringTransport`; and `NETWORK_DRIVER=go` therefore still reached `FakeProvider` for every mutation.
+
+### 57.2 Architecture actually implemented
+
+```
+Laravel GoNetworkDriver (unchanged)
+  → POST /v1/network/...
+    → api.Server
+        legacy network.Provider    broad simulation: CREATE_PPPOE, CHANGE_PROFILE, TEST_CONNECTION
+        network.MutationProvider   NEW narrow owner: ENABLE / DISABLE / DISCONNECT
+      → provider.MutationProviderFor(selection, registered)   selection must agree with registration
+        → FakeProvider (process-wide singleton)   …or…   hard startup refusal
+```
+
+| File | Role |
+| --- | --- |
+| `internal/network/mutation.go` (new, 53 lines) | `MutationOperation` string type, the three constants, `MutationProvider` interface, `MutationOperations()`, `MutationOperationFor()`, and `type MutationRequest = Request` (`network.MutationCounter` is reused from `types.go`, which Task 1 does not touch) |
+| `internal/provider/mutation_provider.go` (new, 79 lines) | selection names, `ErrRealMutationProviderUnavailable`, `ErrUnsupportedMutationProvider`, `GlobalFakeProvider()`, `NewMutationProvider()`, `MutationProviderFor()`, `SupportedMutationProviders()` |
+| `internal/provider/routeros_write.go` (new, 148 lines) | allowlist **data**, identity validation, `RouterOSPreparedWrite`, `PrepareRouterOSWrite()`, `RouterOSWritePathAllowed()`, `RouterOSMutationTransport` contract |
+| `internal/api/server.go` (+119/−12) | mutation routes routed through the registered `MutationProvider`; `NewWithMutationProvider` composition; `writeCounter` reads the shared `MutationCounter` |
+| `cmd/server/main.go` (+55/−16) | hard-wired `NewFakeProvider()` removed; testable `buildHandler` / `selectMutationProvider` / `monitoringProviderFor` |
+| `internal/config/config.go` (+6) | `MutationProvider` field from `NETWORK_MUTATION_PROVIDER`, default `fake` |
+| `internal/provider/fake.go` (+14) | `SupportedOperations()` plus compile-time assertions that `*FakeProvider` satisfies `Provider`, `MutationProvider`, `MutationCounter` |
+
+`MutationRequest` is deliberately a **type alias** of `network.Request`, not a second wire type: the strict `DisallowUnknownFields()` decode remains the single Laravel→Go contract, and adding a credential field is a Task 4 change that §41 and §54.5 item 3 require to land in the same deployable unit as the Laravel client.
+
+### 57.3 Exact mutation-provider selection behavior
+
+| `NETWORK_MUTATION_PROVIDER` | Result |
+| --- | --- |
+| unset | `fake` — safe default, `valueOrDefault("NETWORK_MUTATION_PROVIDER", "fake")` |
+| `fake` | shared `FakeProvider` instance, identical object used by the rest of the engine |
+| `routeros` | `ErrRealMutationProviderUnavailable` → `main` logs `network engine startup refused` and `os.Exit(1)` |
+| `""`, whitespace, `RouterOS`, ` routeros`, `routeros\n`, unknown name | `ErrUnsupportedMutationProvider` → startup refused |
+
+The raw string is preserved rather than trimmed or lower-cased, so no casing or whitespace variant can coerce its way into a real selection. The two documented anti-patterns are structurally absent: `routeros → FakeProvider` requires an explicit fallback that no code path contains, and an invalid value can never widen to RouterOS because the default branch returns an error. Startup therefore exits non-zero rather than serving a degraded provider, exercised by `TestSelectMutationProviderRefusesTheRealRouterOSSHAt` and `TestBuildHandlerAcceptsTheFakeSelectionAndRejectsTheRealOne`.
+
+### 57.4 Exact real-operation allowlist
+
+`RealRouterOSOperations()` returns exactly three entries, matched case-sensitively with no trimming and no prefix parsing:
+
+| Operation | Derived sentence (allowlist data only, never executed) |
+| --- | --- |
+| `ENABLE_PPPOE` | `/ppp/secret/set =.id=<identity> =disabled=no` |
+| `DISABLE_PPPOE` | `/ppp/secret/set =.id=<identity> =disabled=yes` |
+| `DISCONNECT_SESSION` | `/ppp/active/remove =.id=<identity>` |
+
+Explicitly **not** real-write allowlisted, and rejected with `ErrUnsupportedMutationProvider` at the mutation boundary: `CREATE_PPPOE`, `CHANGE_PROFILE`, `SET_PASSWORD` / `RESET_PASSWORD` (no password operation exists in the type at all), `DELETE_PPPOE` / `DELETE_SECRET`, `REBOOT`, `SCHEDULE_SCRIPT`, `TEST_CONNECTION`, and raw command text (`/ppp/secret/set`, `/ppp/secret/print`, `PRINT`, `RAW`, `ARBITRARY`, `enable_pppoe`, `DISABLE_PPPOE;reboot`). The simulation deliberately exposes more than RouterOS may: `CREATE_PPPOE`, `CHANGE_PROFILE` and `TEST_CONNECTION` stay methods of the broad `network.Provider` interface (`CreateAccount` / `ChangeProfile` / `TestConnection`), while the narrow `network.MutationProvider` carries only `Name`, `SupportedOperations`, and the three approved writes — so `FakeProvider.SupportedOperations()` returns exactly `network.MutationOperations()` and can never widen real support.
+
+Defense in depth at this layer: identities must match `\A(?:\*[0-9]{1,9}|[A-Za-z0-9][A-Za-z0-9._-]{0,31})\z`, the fixed sentence shape is assembled from a constant path plus `=.id=` plus a constant `=disabled=` token, a transport that accepts `RouterOSPreparedWrite` cannot be handed a caller-supplied string at all, `/ppp/secret/remove` is absent while `DISCONNECT_SESSION` is pinned to `/ppp/active/remove`, and error strings carry only static text so neither identity nor password can be reflected into a log.
+
+### 57.5 Read-only boundaries held
+
+| Boundary | Task 1 status |
+| --- | --- |
+| `provider.RouterOSTransport` (`Connect` / `Read` / `Close`) | **unchanged** — `git diff` for `provider/routeros_discovery.go`, `provider/discovery_provider.go`, `provider.go`, `monitoring/routeros.go` is empty. `TestReadOnlyRouterOSTransportContractStaysReadOnly` reflects over the interface and pins its method set to exactly `Close, Connect, Read`, failing if any name containing `Write`/`Set`/`Remove`/`Run`/`Execute` is ever added; it also asserts the production `realRouterOSTransport` still satisfies `RouterOSTransport` but does **not** satisfy `RouterOSMutationTransport` |
+| `RouterOSDiscoveryProvider` | unchanged and still read-only; `TestDiscoveryAndMonitoringProvidersStayReadOnlyAfterTaskOne` type-asserts it satisfies `network.DiscoveryProvider` but never `network.MutationProvider`, confirms `allowedRouterOSReadCommands` is still the six print commands with neither write path present, and drives a real `Discover()` through a recording transport to prove `mutations == 0` |
+| `monitoring.RouterOSProvider` | file unedited by Task 1; its own `monitoringTransport` alias remains read-only and stays outside the mutation boundary entirely |
+| `go-routeros` library imports | still **only** `internal/monitoring/routeros.go` and `internal/provider/routeros_discovery.go` — no Task 1 file imports the client, and `routeros_write.go` pulls in only `context`, `errors`, `fmt`, `regexp`, `strings`, and `network` (no `net`, no dial, no client construction, no URL or port) |
+| New write boundary | `RouterOSMutationTransport` (`Connect(ctx, DiscoveryConnection) error` / `Write(ctx, RouterOSPreparedWrite) error` / `Close() error`) — its method set is pinned to exactly `Close, Connect, Write` by `TestRouterOSMutationTransportIsASeparateBoundedContract`, and the only implementation in the tree is a call-counting test stub; **no production implementation exists** |
+| Contract-shape gate | `TestRealRouterOSProviderShapeCannotSatisfyTheBroadContract` fixes `network.MutationProvider` at exactly 5 methods and asserts a narrow mutation provider does **not** satisfy the 7-method `network.Provider`, so it can never be plugged into the create / change-profile / test-connection routes; `FakeProvider` remains the only *production* type satisfying `network.MutationProvider` (test stubs excluded) |
+
+Separation of concerns is explicit rather than implied: the mutation transport is a distinct interface from the discovery transport, and a leased read client is not handed to a writer — which is what makes `REAL ROUTEROS MUTATION PATH REACHABLE: NO` a checkable property rather than an assertion.
+
+### 57.6 Actual verification results
+
+Go, from `network-engine/` on a clean worktree after all edits:
+
+| Gate | Result |
+| --- | --- |
+| `gofmt -l .` | empty — every file formatted |
+| `go build ./...` | exit 0 |
+| `go vet ./...` | exit 0, no output |
+| `go test -count=1 ./...` | **exit 0** — 8 packages: 7 `ok`, and `cmd/agent` reports `[no test files]` (as it did at baseline) |
+| `go test -count=1 -v` over the 5 affected packages | 53 top-level PASS, **0 SKIP**, 5/5 `ok` |
+| New Task 1 tests | **35** across 6 files: 4 in `network/operations_test.go`, 7 in `provider/mutation_provider_test.go`, 9 in `provider/routeros_operations_test.go`, 7 in `api/mutation_registration_test.go`, 5 in `cmd/server/mutation_provider_selection_test.go`, 3 in `config/config_test.go` |
+| `git diff --check` | exit 0 |
+
+Laravel, from the Phase 6I checkout:
+
+| Gate | Result |
+| --- | --- |
+| `php artisan test --filter="GoNetworkDriverTest\|Phase6BGoNetworkEngineIntegrationTest\|NetworkOperatorAuthorizationTest"` | **19 passed, 2 skipped** (116 assertions), 3.52 s; the 2 skips are the documented `localhost:8787` live-engine tests |
+| `php artisan test` (full suite) | **129 passed, 3 skipped** (668 assertions), 15.24 s — identical pass/skip/assertion counts to the `b4c5894` baseline, so no regression |
+
+Secret scan over the Task 1 diff: no credential or secret-shaped literal added; the only `password`-like strings live in negative tests that prove redaction (`/ppp/secret/set =name=alice =password=super-secret-value` plus its canary assertions). `.env.example` gained `NETWORK_MUTATION_PROVIDER=fake` with a comment block only — no RouterOS credentials, and the discovery/monitoring keys and their semantics are untouched. Two deliberate test residuals remain, both reviewed as safe: `cmd/server/mutation_provider_selection_test.go` defines a synthetic 32-hex constant (`compositionToken`) and `api/mutation_registration_test.go` a plaintext `"phase6i-test-token"`; neither is emitted or derived from a real secret, and they exist only to pass the real bearer middleware. Crucially, the composition test performs **no socket I/O at all** — `buildHandler` is driven through `httptest.NewRequest` + `handler.ServeHTTP`, so its `Address: "127.0.0.1:0"` field is inert config data that is never dialed, and `config_test.go`'s `127.0.0.1:8787` is only an assertion of the pre-existing loopback default. No Task 1 test can reach a device.
+
+### 57.7 Safety declaration
+
+```
+REAL MIKROTIK WRITE OPERATIONS:        0
+MIKROTIK CONFIGURATION CHANGED:        NO
+ROUTEROS PERMISSIONS CHANGED:          NO
+MANAGED TRANSITIONS:                   0
+REAL ROUTEROS MUTATION PATH REACHABLE: NO
+```
+
+No connection to the hEX was attempted or possible. The local run environment resolves to `NETWORK_DRIVER=fake` with fake discovery and monitoring, and the Laravel tests that exercise the Go client use `Http::fake()`.
+
+### 57.8 Corrections to earlier plan text
+
+- §41 listed `internal/network/types.go` as the file expected to change for the operation vocabulary. **Actual:** `types.go` is untouched — the write vocabulary lives in a new `internal/network/mutation.go` and `network.Request` gains no field. Keeping the new type out of `types.go` also leaves the discovery/monitoring request shapes byte-identical, which §54.1 fact 6 depends on.
+- §41 and §54.5 item 2 named the write file `internal/provider/routeros_operations.go`. **Actual:** `internal/provider/routeros_write.go` — one file holding the allowlist data, identity validation, `RouterOSPreparedWrite`, and the `RouterOSMutationTransport` contract. §41's substantive requirement (a *separate* mutation interface so that read-only `RouterOSTransport` and its two existing implementations stay untouched) is met; only the name and file count differ, and a separate transport file was not warranted for a three-method contract.
+- §44 required keeping every existing `api.NewWithMonitoring` call site compiling by *adding* a constructor instead of changing its arity, while §41's file list expected `internal/api/server_test.go` to change. **Actual:** `api.NewWithMutationProvider` was added and `server_test.go` is byte-identical (`git status` lists no modification), satisfying the stricter of the two.
+- §54.1 fact 1 recorded the hard-wiring at `cmd/server/main.go:39`, `:45`. **Actual:** that hard-wiring is gone, and the boundary is stronger than "replace the selection" — `MutationProviderFor` requires the config string and the registered provider to *agree*, so a provider registered as `routeros` while the config still says `fake` (or the reverse) is a startup refusal, and `NETWORK_MUTATION_PROVIDER=routeros` refuses rather than silently falling back to the fake, as the Global Constraints and §44 require. (§54.1 fact 3 attributes the "never fall back to fake" rule to Section 18; that rule actually sits in Global Constraints and §44 — §18 is Preflight Design. The historical section is left as written.)
+- §54.2's environment matrix listed `NETWORK_MUTATION_PROVIDER` as `fake | routeros`. **Actual:** both named values behave as specified, and every value outside them — empty, whitespace, `RouterOS`, ` routeros`, `routeros\n`, any unknown name — is a configuration error rather than a coercion, which the two-value table left unstated.
+- §54.5 item 3 anticipated the Laravel→Go request-contract change (credential field, key forwarding, strict decode) landing in one commit. **Actual:** Task 1 adds no credential field — the fake needs no device credential, and a field with no real caller would invite a half-done wire change. That item stays a Task 4 obligation under §41's same-deployable-unit note.
+- §54.4 recorded that `cmd/server`, `internal/config` and `internal/network` had **no test files** at baseline. **Actual:** Task 1 adds the first tests to all three, which is §54.5 item 2's "with tests" requirement rather than a deviation.
+
+### 57.9 Deliberately out of scope
+
+No RouterOS write execution, connection, lease, retry, timeout classification, or `UNKNOWN_OUTCOME`; no migration, reservation, `router_credentials`, or `NETWORK_ENGINE_DEVICE_TOKEN`; no `MANAGED` transition or state change; no Laravel, billing, route, or UI change. Task 1 only makes the safe boundary exist and provable, so Task 2 (credential-backed `MATCHED` reconciliation) remains the next executable task.

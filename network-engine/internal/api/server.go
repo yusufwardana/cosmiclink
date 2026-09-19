@@ -19,6 +19,7 @@ const maxRequestBodyBytes = 64 << 10
 
 type Server struct {
 	provider    network.Provider
+	mutation    network.MutationProvider
 	discovery   network.DiscoveryProvider
 	token       string
 	logger      *slog.Logger
@@ -27,16 +28,42 @@ type Server struct {
 }
 
 func New(provider network.Provider, discovery network.DiscoveryProvider, token string, logger *slog.Logger) *Server {
-	return &Server{provider: provider, discovery: discovery, token: token, logger: logger, idempotency: &idempotencyStore{results: make(map[string]network.Result)}}
+	return NewWithMutationProvider(provider, MutationProviderFrom(provider), discovery, nil, token, logger)
+}
+
+// MutationProviderFrom reports whether a registered provider already declares
+// the narrow Phase 6I write contract. Providers that do not are used for
+// simulated operations only, and write routes then fail closed.
+func MutationProviderFrom(provider network.Provider) network.MutationProvider {
+	narrow, ok := provider.(network.MutationProvider)
+	if !ok {
+		return nil
+	}
+	return narrow
 }
 
 func NewWithMonitoring(provider network.Provider, discovery network.DiscoveryProvider, monitor monitoring.Provider, token string, logger *slog.Logger) *Server {
+	server := NewWithMutationProvider(provider, MutationProviderFrom(provider), discovery, monitor, token, logger)
+	return server
+}
+
+// NewWithMutationProvider is the Phase 6I composition entry point. The legacy
+// provider serves everything outside the mutation allowlist, while the narrow
+// mutation provider owns ENABLE_PPPOE, DISABLE_PPPOE and DISCONNECT_SESSION.
+// Either may be nil; a nil mutation provider makes write routes fail closed.
+func NewWithMutationProvider(provider network.Provider, mutation network.MutationProvider, discovery network.DiscoveryProvider, monitor monitoring.Provider, token string, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	server := New(provider, discovery, token, logger)
-	server.monitoring = monitor
-	return server
+	return &Server{
+		provider:    provider,
+		mutation:    mutation,
+		discovery:   discovery,
+		token:       token,
+		logger:      logger,
+		idempotency: &idempotencyStore{results: make(map[string]network.Result)},
+		monitoring:  monitor,
+	}
 }
 
 func (server *Server) Handler() http.Handler {
@@ -86,17 +113,29 @@ func (server *Server) monitoringProtected(writer http.ResponseWriter, request *h
 	writeJSON(writer, http.StatusOK, map[string]any{"reachable": true, "collected_at": snapshot.CollectedAt, "identity": snapshot.Router.Identity, "version": snapshot.Router.Version, "architecture": snapshot.Router.Architecture, "board": snapshot.Router.BoardName, "uptime": snapshot.Router.UptimeSeconds, "cpu_load_percent": snapshot.Router.CPULoad, "memory_total_bytes": snapshot.Router.MemoryTotal, "memory_free_bytes": snapshot.Router.MemoryFree, "ppp_active": snapshot.PPPSessions})
 }
 
+// mutationCount reports the write counter of the provider that actually owns
+// mutations: the registered Phase 6I mutation provider first, then the legacy
+// provider. That ordering keeps the safety signal meaningful no matter which
+// selection is registered.
 func (server *Server) mutationCount(writer http.ResponseWriter, request *http.Request) {
 	if !server.authorized(request.Header.Get("Authorization")) {
 		writeJSON(writer, http.StatusUnauthorized, map[string]any{"code": "UNAUTHORIZED", "message": "Unauthorized"})
 		return
 	}
-	counter, supported := server.provider.(network.MutationCounter)
+	counter, supported := server.writeCounter()
 	if !supported {
 		writeJSON(writer, http.StatusNotFound, map[string]any{"code": "NOT_AVAILABLE", "message": "Mutation counter unavailable"})
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]int{"mutation_count": counter.MutationCount()})
+}
+
+func (server *Server) writeCounter() (network.MutationCounter, bool) {
+	if counter, ok := server.mutation.(network.MutationCounter); ok {
+		return counter, true
+	}
+	counter, ok := server.provider.(network.MutationCounter)
+	return counter, ok
 }
 
 func (server *Server) discoveryProtected(writer http.ResponseWriter, request *http.Request) {
@@ -188,7 +227,7 @@ func (server *Server) execute(writer http.ResponseWriter, request *http.Request,
 			result.OperationID = command.OperationID
 		}
 		if result.Provider == "" {
-			result.Provider = server.provider.Name()
+			result.Provider = server.providerName()
 		}
 		return result
 	})
@@ -221,25 +260,90 @@ func valid(command network.Request, operation string) bool {
 	return true
 }
 
+// invoke routes an already validated command. Only the three allowlisted Phase
+// 6I write codes reach the narrow mutation provider, and every other value is
+// rejected here instead of falling through to DisconnectSession.
 func (server *Server) invoke(ctx context.Context, command network.Request) network.Result {
 	switch command.Operation {
 	case "TEST_CONNECTION":
 		return server.provider.TestConnection(ctx, command)
 	case "CREATE_PPPOE":
 		return server.provider.CreateAccount(ctx, command)
-	case "ENABLE_PPPOE":
-		return server.provider.EnableAccount(ctx, command)
-	case "DISABLE_PPPOE":
-		return server.provider.DisableAccount(ctx, command)
 	case "CHANGE_PROFILE":
 		return server.provider.ChangeProfile(ctx, command)
+	case string(network.MutationEnablePPPoE):
+		return server.mutate(ctx, command, network.MutationEnablePPPoE)
+	case string(network.MutationDisablePPPoE):
+		return server.mutate(ctx, command, network.MutationDisablePPPoE)
+	case string(network.MutationDisconnectSession):
+		return server.mutate(ctx, command, network.MutationDisconnectSession)
 	default:
-		return server.provider.DisconnectSession(ctx, command)
+		return server.operationNotAllowed(command)
 	}
 }
 
+// mutate performs one approved RouterOS write through the registered mutation
+// provider. A missing provider or an operation outside its declared capability
+// fails closed, so simulated breadth can never be mistaken for real support.
+func (server *Server) mutate(ctx context.Context, command network.Request, operation network.MutationOperation) network.Result {
+	// Re-derive the operation from the command text rather than trusting the route
+	// label, so a body that disagrees with its endpoint can never execute under a
+	// permitted code.
+	parsed, allowed := network.MutationOperationFor(command.Operation)
+	if !allowed || parsed != operation {
+		return server.operationNotAllowed(command)
+	}
+	provider := server.mutation
+	if provider == nil || !supportsMutationOperation(provider, operation) {
+		return server.operationNotAllowed(command)
+	}
+	switch operation {
+	case network.MutationEnablePPPoE:
+		return provider.EnableAccount(ctx, command)
+	case network.MutationDisablePPPoE:
+		return provider.DisableAccount(ctx, command)
+	case network.MutationDisconnectSession:
+		return provider.DisconnectSession(ctx, command)
+	default:
+		return server.operationNotAllowed(command)
+	}
+}
+
+func supportsMutationOperation(provider network.MutationProvider, operation network.MutationOperation) bool {
+	if provider == nil {
+		return false
+	}
+	for _, supported := range provider.SupportedOperations() {
+		if supported == operation {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (server *Server) operationNotAllowed(command network.Request) network.Result {
+	return network.Result{
+		Success:     false,
+		OperationID: command.OperationID,
+		Provider:    server.providerName(),
+		Code:        "OPERATION_NOT_ALLOWED",
+		Message:     "Operation is not available from the registered mutation provider",
+	}
+}
+
+// providerName is nil-safe so a partially composed server can still report a
+// rejection instead of panicking inside error handling.
+func (server *Server) providerName() string {
+	if server.provider == nil {
+		return ""
+	}
+
+	return server.provider.Name()
+}
+
 func (server *Server) invalid(writer http.ResponseWriter, operationID, code, message string) {
-	writeResult(writer, http.StatusBadRequest, network.Result{Success: false, OperationID: operationID, Provider: server.provider.Name(), Code: code, Message: message})
+	writeResult(writer, http.StatusBadRequest, network.Result{Success: false, OperationID: operationID, Provider: server.providerName(), Code: code, Message: message})
 }
 
 func statusFor(result network.Result) int {
@@ -251,6 +355,9 @@ func statusFor(result network.Result) int {
 	}
 	if result.Code == "ROUTER_UNAVAILABLE" {
 		return http.StatusServiceUnavailable
+	}
+	if result.Code == "OPERATION_NOT_ALLOWED" {
+		return http.StatusNotImplemented
 	}
 	return http.StatusBadGateway
 }

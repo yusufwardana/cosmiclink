@@ -115,6 +115,20 @@ func (p *FakeProvider) MutationCount() int {
 	return p.mutations
 }
 
+// SupportedOperations declares that the simulation serves every approved Phase
+// 6I write. Those writes still mutate only this in-memory simulation: the fake
+// never contacts a router, and it remains the only provider that can be
+// registered as a mutation provider in this build.
+func (p *FakeProvider) SupportedOperations() []network.MutationOperation {
+	return network.MutationOperations()
+}
+
+var (
+	_ network.Provider         = (*FakeProvider)(nil)
+	_ network.MutationProvider = (*FakeProvider)(nil)
+	_ network.MutationCounter  = (*FakeProvider)(nil)
+)
+
 func (p *FakeProvider) success(request network.Request, code, message string, data map[string]any) network.Result {
 	return network.Result{Success: true, OperationID: request.OperationID, Provider: p.Name(), Code: code, Message: message, Data: data}
 }
