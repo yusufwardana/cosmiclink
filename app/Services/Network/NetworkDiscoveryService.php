@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\DB;
 
 class NetworkDiscoveryService
 {
-    public function __construct(private readonly NetworkDiscoveryClient $client) {}
+    public function __construct(
+        private readonly NetworkDiscoveryClient $client,
+        private readonly ManagedTargetIdentityService $targetIdentity,
+    ) {}
 
     public function discover(Router $router, User $user): NetworkDiscoverySnapshot
     {
@@ -40,6 +43,19 @@ class NetworkDiscoveryService
                         $resource->save();
                     }
                 }
+
+                // Phase 6i Task 2.8: when a provider enumerates `active_sessions`,
+                // project them onto already-adopted accounts as safe session
+                // evidence. A payload that is absent is not inferred either way,
+                // and no discovery resource is created for a session - sessions
+                // are lifecycle context, never adoption candidates.
+                $sessionPayload = $normalizedSnapshot['active_sessions'] ?? null;
+                $this->targetIdentity->recordObservedSessions(
+                    $snapshot,
+                    is_array($sessionPayload)
+                        ? array_map(fn (array $session): array => $this->sanitize($session), array_values(array_filter($sessionPayload, 'is_array')))
+                        : null
+                );
             }
             NetworkDiscoveryAudit::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user?->id, 'action' => 'DISCOVERY', 'details' => $this->sanitize(['status' => $snapshot->status, 'provider' => $snapshot->provider, 'counts' => $snapshot->summary, 'device_identity' => $normalizedSnapshot['device']['name'] ?? null, 'routeros_version' => $normalizedSnapshot['device']['routeros_version'] ?? null]), 'occurred_at' => now()]);
 

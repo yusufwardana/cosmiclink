@@ -24,6 +24,22 @@ return [
         'read_timeout_seconds' => (int) env('ROUTEROS_DISCOVERY_READ_TIMEOUT_SECONDS', 5),
         'insecure_tls' => env('ROUTEROS_DISCOVERY_INSECURE_TLS', false),
     ],
+    /*
+    | Controlled RouterOS lifecycle evidence bounds (Phase 6i Task 2.8).
+    |
+    | These settings only bound how long target identity and preflight evidence
+    | stay usable, and whether a name-only reference may stand in when the
+    | RouterOS `.id` is unavailable. Nothing here authorises a mutation: the
+    | controlled gate remains default-deny until the ordered PRE1-PRE12
+    | evaluation lands in Task 3, and a disabled fallback keeps name-only
+    | targets unmutable by construction.
+    */
+    'controlled_operations' => [
+        'identity' => [
+            'allow_name_fallback' => filter_var(env('NETWORK_IDENTITY_ALLOW_NAME_FALLBACK', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+        'preflight_ttl_seconds' => (int) env('NETWORK_PREFLIGHT_TTL_SECONDS', 300),
+    ],
     'go' => [
         'url' => env('GO_NETWORK_ENGINE_URL', 'http://127.0.0.1:8787'),
         'token' => env('GO_NETWORK_ENGINE_TOKEN', ''),

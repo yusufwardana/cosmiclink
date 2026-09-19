@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 class AdoptDiscoveredNetworkResource
 {
+    public function __construct(private readonly ManagedTargetIdentityService $targetIdentity) {}
+
     public function handle(DiscoveredNetworkResource $resource, CustomerConnection $connection, User $user): DiscoveredNetworkResource
     {
         abort_unless($resource->tenant_id === $user->tenant_id && $connection->tenant_id === $user->tenant_id && $resource->router_id === $connection->router_id, 403);
@@ -45,6 +47,10 @@ class AdoptDiscoveredNetworkResource
             abort_unless(! $conflict, 422, 'NetworkAccount is already attached to another connection.');
             $connection->update(['network_account_id' => $account->id]);
             $resource->update(['management_state' => 'ADOPTED', 'customer_connection_id' => $connection->id, 'network_account_id' => $account->id]);
+            // Phase 6i Task 2.8: the adopted row is the only evidence the controlled
+            // lifecycle may address this target by, so its RouterOS identity context
+            // is projected here (references and digests only) in the same transaction.
+            $this->targetIdentity->recordAdoptionContext($account, $resource);
             NetworkDiscoveryAudit::create(['tenant_id' => $resource->tenant_id, 'router_id' => $resource->router_id, 'discovered_network_resource_id' => $resource->id, 'initiated_by_user_id' => $user->id, 'action' => 'ADOPTION', 'details' => ['previous_state' => 'DISCOVERED', 'new_state' => 'ADOPTED', 'customer_connection_id' => $connection->id, 'network_account_id' => $account->id, 'username' => $account->username, 'snapshot_id' => $resource->discovery_snapshot_id], 'occurred_at' => now()]);
 
             return $resource->fresh();
@@ -64,6 +70,14 @@ class AdoptDiscoveredNetworkResource
                 $connection->update(['network_account_id' => null]);
             }
             $resource->update(['management_state' => 'DISCOVERED', 'customer_connection_id' => null, 'network_account_id' => null]);
+            // Phase 6i Task 2.8: an unadopted target must stop looking addressable.
+            if ($accountId) {
+                $account = NetworkAccount::query()->find($accountId);
+
+                if ($account && (int) $account->router_identity_resource_id === (int) $resource->id) {
+                    $this->targetIdentity->clearIdentityContext($account);
+                }
+            }
             NetworkDiscoveryAudit::create(['tenant_id' => $resource->tenant_id, 'router_id' => $resource->router_id, 'discovered_network_resource_id' => $resource->id, 'initiated_by_user_id' => $user->id, 'action' => 'UNADOPTION', 'details' => ['previous_state' => 'ADOPTED', 'new_state' => 'DISCOVERED', 'customer_connection_id' => $connection?->id, 'network_account_id' => $accountId, 'reason' => $reason], 'occurred_at' => now()]);
 
             return $resource->fresh();

@@ -25,5 +25,11 @@ func (p *FakeDiscoveryProvider) Discover(_ context.Context, request network.Disc
 		Accounts:     []map[string]any{{"external_ref": "existing-user-001", "username": "existing-user-001", "profile": "10M", "enabled": true}, {"external_ref": "existing-user-002", "username": "existing-user-002", "profile": "20M", "enabled": true}, {"external_ref": "existing-user-003", "username": "existing-user-003", "profile": "50M", "enabled": false}},
 		AddressPools: []map[string]any{{"external_ref": "pppoe-pool", "name": "pppoe-pool", "ranges": "10.10.0.2-10.10.0.254"}},
 		Queues:       []map[string]any{{"external_ref": "queue-existing-user-001", "name": "existing-user-001", "target": "existing-user-001", "max_limit": "10M/10M"}},
+		// Simulated session evidence uses `sim:` references on purpose: a fake
+		// session must never be addressable as a real RouterOS `.id` target.
+		ActiveSessions: []map[string]any{
+			{"external_ref": "sim:*1001", "name": "existing-user-001", "service": "pppoe", "address": "10.10.0.11", "caller_id": "", "uptime": "1h2m3s"},
+			{"external_ref": "sim:*1002", "name": "existing-user-003", "service": "pppoe", "address": "10.10.0.13", "caller_id": "", "uptime": "4d-02:03:04"},
+		},
 	}}
 }

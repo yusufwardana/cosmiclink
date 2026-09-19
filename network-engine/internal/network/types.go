@@ -61,11 +61,16 @@ type DiscoveryResult struct {
 }
 
 type DiscoverySnapshot struct {
-	Device       map[string]any   `json:"device"`
-	Profiles     []map[string]any `json:"profiles"`
-	Accounts     []map[string]any `json:"accounts"`
-	AddressPools []map[string]any `json:"address_pools"`
-	Queues       []map[string]any `json:"queues"`
+	Device   map[string]any   `json:"device"`
+	Profiles []map[string]any `json:"profiles"`
+	Accounts []map[string]any `json:"accounts"`
+	// ActiveSessions is lifecycle context, not an adoption candidate. It is
+	// deliberately always serialised: `null` means the provider did not enumerate
+	// sessions (no inference allowed), while `[]` means the router was enumerated
+	// and reported none (recorded sessions may be superseded).
+	ActiveSessions []map[string]any `json:"active_sessions"`
+	AddressPools   []map[string]any `json:"address_pools"`
+	Queues         []map[string]any `json:"queues"`
 }
 
 type DiscoveryProvider interface {
