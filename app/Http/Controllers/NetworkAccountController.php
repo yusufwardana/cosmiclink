@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\NetworkAccount;
 use App\Models\Router;
+use App\Services\Network\ManagedAccountLifecycleService;
 use App\Services\Network\NetworkOperationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -54,6 +55,27 @@ class NetworkAccountController extends Controller
         $result = $operations->disconnect($account, Auth::user());
 
         return $result->successful ? back()->with('status', $result->message) : back()->withErrors(['account' => $result->message]);
+    }
+
+    public function manage(Request $request, NetworkAccount $account, ManagedAccountLifecycleService $lifecycle)
+    {
+        abort_unless($account->tenant_id === Auth::user()->tenant_id, 403);
+        $data = $request->validate(['confirmation' => ['required', 'string', 'max:128']]);
+        $decision = $lifecycle->manage($account, Auth::user(), $data['confirmation']);
+
+        return $decision->allowed
+            ? back()->with('status', 'Local managed authorization granted.')
+            : back()->withErrors(['account' => $decision->errorCode]);
+    }
+
+    public function revokeManagement(NetworkAccount $account, ManagedAccountLifecycleService $lifecycle)
+    {
+        abort_unless($account->tenant_id === Auth::user()->tenant_id, 403);
+        $decision = $lifecycle->revoke($account, Auth::user());
+
+        return $decision->allowed
+            ? back()->with('status', 'Local managed authorization revoked.')
+            : back()->withErrors(['account' => $decision->errorCode]);
     }
 
     private function authorizeAccount(NetworkAccount $account): void

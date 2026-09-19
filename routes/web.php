@@ -72,6 +72,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/network/accounts/{account}/enable', fn (NetworkAccount $account, NetworkAccountController $controller, NetworkOperationService $operations) => $controller->status($account, 'active', $operations))->name('network.accounts.enable');
     Route::put('/network/accounts/{account}/profile', [NetworkAccountController::class, 'profile'])->name('network.accounts.profile');
     Route::post('/network/accounts/{account}/disconnect', [NetworkAccountController::class, 'disconnect'])->name('network.accounts.disconnect');
+    Route::post('/network/accounts/{account}/manage', [NetworkAccountController::class, 'manage'])->name('network.accounts.manage');
+    Route::post('/network/accounts/{account}/revoke-management', [NetworkAccountController::class, 'revokeManagement'])->name('network.accounts.revoke-management');
     Route::post('/network/accounts/{account}/{status}', [NetworkAccountController::class, 'status'])->name('network.accounts.status');
     Route::get('/network/logs', [OperationLogController::class, 'index'])->name('network.logs.index');
 });

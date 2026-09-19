@@ -60,7 +60,7 @@ class NetworkAccountTransition extends Model
     private const DOCUMENTED_TRANSITIONS = [
         self::STATE_OBSERVED => [self::STATE_ADOPTED, self::STATE_UNMANAGED],
         self::STATE_ADOPTED => [self::STATE_MANAGED, self::STATE_REVOKED, self::STATE_UNMANAGED],
-        self::STATE_MANAGED => [self::STATE_UNMANAGED, self::STATE_REVOKED],
+        self::STATE_MANAGED => [self::STATE_ADOPTED, self::STATE_UNMANAGED, self::STATE_REVOKED],
         self::STATE_UNMANAGED => [self::STATE_OBSERVED, self::STATE_ADOPTED],
         self::STATE_REVOKED => [self::STATE_OBSERVED],
     ];
@@ -173,27 +173,54 @@ class NetworkAccountTransition extends Model
 
         return DB::transaction(function () use ($account, $fromState, $toState, $user, $reasonCode, $scope, $approvalReference, $occurredAt): self {
             $locked = NetworkAccount::query()->lockForUpdate()->findOrFail($account->id);
-            $sequence = (int) self::query()->where('network_account_id', $locked->id)->max('sequence') + 1;
 
-            return self::query()->create([
-                'tenant_id' => $locked->tenant_id,
-                'router_id' => $locked->router_id,
-                'network_account_id' => $locked->id,
-                'sequence' => $sequence,
-                'from_state' => $fromState,
-                'to_state' => $toState,
-                'policy_allowed' => self::isDocumentedTransition($fromState, $toState),
-                'reason_code' => $reasonCode,
-                'performed_by' => $user?->id,
-                'target_identity_type' => $locked->router_identity_type,
-                'target_identity_ref' => $locked->router_identity_ref,
-                'target_identity_fingerprint' => $locked->router_identity_fingerprint,
-                'routeros_version' => $locked->routeros_version,
-                'scope_digest' => self::scopeDigest($scope),
-                'approval_reference' => self::boundedReference($approvalReference),
-                'occurred_at' => $occurredAt ?? now(),
-            ]);
+            return self::recordLocked($locked, $fromState, $toState, $user, $reasonCode, $scope, $approvalReference, $occurredAt);
         });
+    }
+
+    /**
+     * Append while the caller already holds the account row lock and transaction.
+     * This is the lifecycle path: no nested transaction or lock reacquisition is
+     * allowed between state mutation and ledger append.
+     *
+     * @param  array<mixed>|null  $scope
+     */
+    public static function recordLocked(
+        NetworkAccount $account,
+        string $fromState,
+        string $toState,
+        ?User $user = null,
+        ?string $reasonCode = null,
+        ?array $scope = null,
+        ?string $approvalReference = null,
+        ?Carbon $occurredAt = null,
+    ): self {
+        foreach ([$fromState, $toState] as $state) {
+            if (! in_array($state, self::states(), true)) {
+                throw new InvalidArgumentException("Unknown management state [{$state}] for transition audit.");
+            }
+        }
+
+        $sequence = (int) self::query()->where('network_account_id', $account->id)->max('sequence') + 1;
+
+        return self::query()->create([
+            'tenant_id' => $account->tenant_id,
+            'router_id' => $account->router_id,
+            'network_account_id' => $account->id,
+            'sequence' => $sequence,
+            'from_state' => $fromState,
+            'to_state' => $toState,
+            'policy_allowed' => self::isDocumentedTransition($fromState, $toState),
+            'reason_code' => $reasonCode,
+            'performed_by' => $user?->id,
+            'target_identity_type' => $account->router_identity_type,
+            'target_identity_ref' => $account->router_identity_ref,
+            'target_identity_fingerprint' => $account->router_identity_fingerprint,
+            'routeros_version' => $account->routeros_version,
+            'scope_digest' => self::scopeDigest($scope),
+            'approval_reference' => self::boundedReference($approvalReference),
+            'occurred_at' => $occurredAt ?? now(),
+        ]);
     }
 
     /**
