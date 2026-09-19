@@ -65,4 +65,9 @@ class Router extends Model
     {
         return $this->hasMany(DiscoveredNetworkResource::class);
     }
+
+    public function reconciliationEvidence()
+    {
+        return $this->hasMany(ReconciliationEvidence::class);
+    }
 }

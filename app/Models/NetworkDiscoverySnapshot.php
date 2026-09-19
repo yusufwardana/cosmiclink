@@ -19,4 +19,9 @@ class NetworkDiscoverySnapshot extends Model
     {
         return $this->hasMany(DiscoveredNetworkResource::class, 'discovery_snapshot_id');
     }
+
+    public function reconciliationEvidence()
+    {
+        return $this->hasMany(ReconciliationEvidence::class);
+    }
 }

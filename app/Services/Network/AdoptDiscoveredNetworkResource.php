@@ -27,7 +27,7 @@ class AdoptDiscoveredNetworkResource
                 return $resource->fresh();
             }
             abort_unless($resource->management_state === 'DISCOVERED', 422);
-            abort_unless($resource->last_seen_at && $resource->last_seen_at->gte(now()->subHours(24)), 409, 'Discovery evidence is stale. Refresh discovery before adopting.');
+            abort_unless($resource->last_seen_at && $resource->last_seen_at->gte(now()->subSeconds((int) config('network.discovery_freshness_seconds', 86400))), 409, 'Discovery evidence is stale. Refresh discovery before adopting.');
 
             $data = $resource->normalized_data;
             $username = trim((string) ($data['username'] ?? $resource->name));

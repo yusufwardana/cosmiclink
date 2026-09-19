@@ -5,34 +5,96 @@ namespace App\Services\Network;
 use App\Models\CustomerConnection;
 use App\Models\DiscoveredNetworkResource;
 use App\Models\NetworkAccount;
+use App\Models\NetworkDiscoverySnapshot;
+use App\Models\ReconciliationEvidence;
 use App\Models\Router;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class NetworkReconciliationService
 {
     public function reconcile(Router $router): Collection
     {
-        $latestSnapshotId = $router->discoverySnapshots()->where('status', 'success')->latest('id')->value('id');
+        return DB::transaction(function () use ($router) {
+            $router = Router::query()->lockForUpdate()->findOrFail($router->id);
+            $latestSnapshot = NetworkDiscoverySnapshot::query()
+                ->where('tenant_id', $router->tenant_id)
+                ->where('router_id', $router->id)
+                ->where('status', 'success')
+                ->orderByDesc('discovered_at')
+                ->orderByDesc('id')
+                ->first();
 
-        return DiscoveredNetworkResource::where('tenant_id', $router->tenant_id)->where('router_id', $router->id)->get()->map(function ($resource) use ($latestSnapshotId, $router) {
-            if ($resource->resource_type !== 'pppoe_account') {
-                return ['resource' => $resource, 'status' => 'NEW'];
-            }
-            if ($resource->management_state === 'ADOPTED' && $latestSnapshotId && $resource->discovery_snapshot_id !== $latestSnapshotId) {
-                return ['resource' => $resource, 'status' => 'MISSING'];
-            }
-            if (! $resource->customer_connection_id) {
-                $suggestion = $this->suggestion($resource, $router);
+            return DiscoveredNetworkResource::query()
+                ->where('tenant_id', $router->tenant_id)
+                ->where('router_id', $router->id)
+                ->get()
+                ->map(function (DiscoveredNetworkResource $resource) use ($latestSnapshot, $router) {
+                    $comparedResource = $this->currentResource($resource, $latestSnapshot);
+                    $row = $this->reconcileResource($resource, $comparedResource, $latestSnapshot, $router);
+                    $this->persistEvidence($resource, $comparedResource, $latestSnapshot, $row['status']);
 
-                return ['resource' => $resource, 'status' => 'NEW', 'suggestion' => $suggestion];
-            }
-            if (! $resource->networkAccount) {
-                return ['resource' => $resource, 'status' => 'CONFLICT'];
-            }
-            $data = $resource->normalized_data;
-
-            return $resource->networkAccount->username !== ($data['username'] ?? null) ? ['resource' => $resource, 'status' => 'CONFLICT'] : ($resource->networkAccount->profile !== ($data['profile'] ?? null) ? ['resource' => $resource, 'status' => 'CHANGED'] : ['resource' => $resource, 'status' => 'MATCHED']);
+                    return $row;
+                });
         });
+    }
+
+    private function reconcileResource(DiscoveredNetworkResource $resource, ?DiscoveredNetworkResource $comparedResource, ?NetworkDiscoverySnapshot $latestSnapshot, Router $router): array
+    {
+        if ($resource->resource_type !== 'pppoe_account') {
+            return ['resource' => $resource, 'status' => 'NEW'];
+        }
+        if ($resource->management_state === 'ADOPTED' && $latestSnapshot && $resource->discovery_snapshot_id !== $latestSnapshot->id) {
+            return ['resource' => $resource, 'status' => 'MISSING'];
+        }
+        if (! $resource->customer_connection_id) {
+            return ['resource' => $resource, 'status' => 'NEW', 'suggestion' => $this->suggestion($resource, $router)];
+        }
+        if (! $resource->networkAccount) {
+            return ['resource' => $resource, 'status' => 'CONFLICT'];
+        }
+        $data = $resource->normalized_data;
+
+        return $resource->networkAccount->username !== ($data['username'] ?? null)
+            ? ['resource' => $resource, 'status' => 'CONFLICT']
+            : ($resource->networkAccount->profile !== ($data['profile'] ?? null)
+                ? ['resource' => $resource, 'status' => 'CHANGED']
+                : ['resource' => $resource, 'status' => 'MATCHED']);
+    }
+
+    private function currentResource(DiscoveredNetworkResource $resource, ?NetworkDiscoverySnapshot $snapshot): ?DiscoveredNetworkResource
+    {
+        if (! $snapshot) {
+            return null;
+        }
+
+        return DiscoveredNetworkResource::query()
+            ->where('tenant_id', $resource->tenant_id)
+            ->where('router_id', $resource->router_id)
+            ->where('resource_type', $resource->resource_type)
+            ->where('discovery_snapshot_id', $snapshot->id)
+            ->where('external_ref', $resource->external_ref)
+            ->latest('id')
+            ->first();
+    }
+
+    private function persistEvidence(DiscoveredNetworkResource $resource, ?DiscoveredNetworkResource $comparedResource, ?NetworkDiscoverySnapshot $snapshot, string $outcome): void
+    {
+        ReconciliationEvidence::create([
+            'tenant_id' => $resource->tenant_id,
+            'router_id' => $resource->router_id,
+            'adopted_resource_id' => $resource->id,
+            'compared_resource_id' => $comparedResource?->id,
+            'discovery_snapshot_id' => $snapshot?->id,
+            'network_account_id' => $resource->network_account_id,
+            'customer_connection_id' => $resource->customer_connection_id,
+            'outcome' => $outcome,
+            'discovered_at' => $snapshot?->discovered_at,
+            'reconciled_at' => now(),
+            'adopted_fingerprint' => $resource->fingerprint,
+            'compared_fingerprint' => $comparedResource?->fingerprint,
+            'relationship_fingerprint' => ReconciliationEvidence::relationshipFingerprint($resource, $comparedResource, $resource->network_account_id, $resource->customer_connection_id),
+        ]);
     }
 
     private function suggestion(DiscoveredNetworkResource $resource, Router $router): ?array

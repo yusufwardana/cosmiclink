@@ -125,7 +125,7 @@ class Phase6CNetworkDiscoveryTest extends TestCase
         {
             public function discover(Router $router): DiscoveryResult
             {
-                return new DiscoveryResult(true, 'Read-only discovery complete', null, ['provider' => 'fake', 'router_ref' => (string) $router->id, 'discovered_at' => '2026-09-17T00:00:00Z', 'snapshot' => ['device' => ['name' => 'CORE-01', 'routeros_version' => '6.49.13'], 'profiles' => [['external_ref' => '10m', 'name' => '10M']], 'accounts' => [['external_ref' => 'existing-user-001', 'username' => 'existing-user-001', 'profile' => '10M', 'enabled' => true, 'password' => 'never-return', 'pass' => 'never-return', 'authorization' => 'never-return', 'credential' => 'never-return']], 'address_pools' => [['external_ref' => 'pppoe-pool', 'name' => 'pppoe-pool']], 'queues' => [['external_ref' => 'queue-1', 'name' => 'queue-1']]]]);
+                return new DiscoveryResult(true, 'Read-only discovery complete', null, ['provider' => 'fake', 'router_ref' => (string) $router->id, 'discovered_at' => now()->toIso8601String(), 'snapshot' => ['device' => ['name' => 'CORE-01', 'routeros_version' => '6.49.13'], 'profiles' => [['external_ref' => '10m', 'name' => '10M']], 'accounts' => [['external_ref' => 'existing-user-001', 'username' => 'existing-user-001', 'profile' => '10M', 'enabled' => true, 'password' => 'never-return', 'pass' => 'never-return', 'authorization' => 'never-return', 'credential' => 'never-return']], 'address_pools' => [['external_ref' => 'pppoe-pool', 'name' => 'pppoe-pool']], 'queues' => [['external_ref' => 'queue-1', 'name' => 'queue-1']]]]);
             }
         });
     }

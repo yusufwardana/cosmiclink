@@ -23,17 +23,19 @@ class NetworkDiscoveryService
     public function persist(Router $router, ?User $user, DiscoveryResult $result): NetworkDiscoverySnapshot
     {
         return DB::transaction(function () use ($router, $user, $result) {
+            $router = Router::query()->lockForUpdate()->findOrFail($router->id);
             $normalizedSnapshot = $this->sanitize($result->data['snapshot'] ?? []);
-            $snapshot = NetworkDiscoverySnapshot::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user?->id, 'provider' => $result->data['provider'] ?? 'unknown', 'status' => $result->successful ? 'success' : 'failed', 'discovered_at' => $result->data['discovered_at'] ?? now(), 'summary' => $result->successful ? $this->summary($normalizedSnapshot) : [], 'snapshot' => $result->successful ? $normalizedSnapshot : null, 'error' => $result->successful ? null : $result->message]);
+            $discoveredAt = $result->data['discovered_at'] ?? now();
+            $snapshot = NetworkDiscoverySnapshot::create(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'initiated_by_user_id' => $user?->id, 'provider' => $result->data['provider'] ?? 'unknown', 'status' => $result->successful ? 'success' : 'failed', 'discovered_at' => $discoveredAt, 'summary' => $result->successful ? $this->summary($normalizedSnapshot) : [], 'snapshot' => $result->successful ? $normalizedSnapshot : null, 'error' => $result->successful ? null : $result->message]);
             if ($result->successful) {
                 foreach (['profiles' => 'pppoe_profile', 'accounts' => 'pppoe_account', 'address_pools' => 'address_pool', 'queues' => 'queue'] as $section => $type) {
                     foreach (($normalizedSnapshot[$section] ?? []) as $data) {
                         $data = $this->sanitize($data);
                         $fingerprint = hash('sha256', json_encode($this->canonical($data)));
                         $resource = DiscoveredNetworkResource::firstOrNew(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'resource_type' => $type, 'fingerprint' => $fingerprint]);
-                        $resource->fill(['discovery_snapshot_id' => $snapshot->id, 'external_ref' => (string) ($data['external_ref'] ?? $data['name'] ?? $fingerprint), 'name' => (string) ($data['username'] ?? $data['name'] ?? $data['external_ref'] ?? $fingerprint), 'normalized_data' => $data, 'last_seen_at' => now()]);
+                        $resource->fill(['discovery_snapshot_id' => $snapshot->id, 'external_ref' => (string) ($data['external_ref'] ?? $data['name'] ?? $fingerprint), 'name' => (string) ($data['username'] ?? $data['name'] ?? $data['external_ref'] ?? $fingerprint), 'normalized_data' => $data, 'last_seen_at' => $discoveredAt]);
                         if (! $resource->exists) {
-                            $resource->first_seen_at = now();
+                            $resource->first_seen_at = $discoveredAt;
                         }
                         $resource->save();
                     }

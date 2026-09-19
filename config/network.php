@@ -4,6 +4,7 @@ return [
     'driver' => env('NETWORK_DRIVER', 'fake'),
     'simulation' => env('NETWORK_DRIVER', 'fake') === 'fake',
     'discovery_provider' => env('NETWORK_DISCOVERY_PROVIDER', 'fake'),
+    'discovery_freshness_seconds' => (int) env('NETWORK_DISCOVERY_FRESHNESS_SECONDS', 86400),
     'mutations_enabled' => filter_var(env('NETWORK_MUTATIONS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     /*
     | Roles allowed to dispatch network (RouterOS / PPPoE) operations.
