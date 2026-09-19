@@ -98,6 +98,7 @@ class ApiController extends Controller
 
     public function check(MonitoringService $monitoring)
     {
+        Gate::authorize('operate-network');
         $monitoring->observeTenant(Auth::user()->tenant_id, Auth::user());
 
         return response()->json(['message' => 'Monitoring check completed.']);

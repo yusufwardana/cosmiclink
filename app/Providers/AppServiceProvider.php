@@ -10,6 +10,7 @@ use App\Models\OutageIncident;
 use App\Models\Payment;
 use App\Models\PaymentRequest;
 use App\Models\Router;
+use App\Models\User;
 use App\Policies\CustomerConnectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\InternetPackagePolicy;
@@ -70,6 +71,11 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Canonical network-operation capability. Tenancy is composed on top of
+        // this by the object policies (see RouterPolicy::operate), so belonging
+        // to a tenant can never by itself authorize a device operation.
+        Gate::define('operate-network', fn (User $user): bool => $user->isNetworkOperator());
+
         Gate::policy(Router::class, RouterPolicy::class);
         Gate::policy(Customer::class, CustomerPolicy::class);
         Gate::policy(InternetPackage::class, InternetPackagePolicy::class);

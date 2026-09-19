@@ -839,7 +839,7 @@ Every assumption this plan makes about existing code was re-read from disk in th
 | 11 | `MonitoringService::persist()` skips inserting a new row while the state is unchanged inside `checkpoint_seconds` (default 300), yet `freshness_seconds` defaults to 180 | `app\Services\Monitoring\MonitoringService.php:58-66`, `config\monitoring.php:6-9` | A persisted `ONLINE` row can legitimately be older than the freshness window, so a naive "fresh within 180s" gate would deny valid mutations. The gate needs its own explicit window and/or a forced read-only re-observe immediately before dispatch |
 | 12 | The existing discovery-freshness rule is a hard-coded 24h check on `DiscoveredNetworkResource.last_seen_at` returning 409; no `fresh_minutes` or `NETWORK_DISCOVERY_FRESH_MINUTES` key exists anywhere in `app`, `config`, `routes`, or `database` | `app\Services\Network\AdoptDiscoveredNetworkResource.php:30` (empty `git grep` for `FRESH_MINUTES`) | Section 21's "fresh discovery" requires a named config key and a stated source, and should not be stricter than the window that permitted adoption |
 | 13 | `config('monitoring.simulation')` already models simulated versus real from driver plus `APP_ENV` | `config\monitoring.php:5` | Section 32's SIMULATION/REAL mode should follow this precedent in `config\network.php` |
-| 14 | `RouterPolicy::operate()` delegates to `view()` and only compares `tenant_id`, so a `customer`-role user in the tenant passes today; `User.role` is a plain string column `admin\|manager\|customer` | `app\Policies\RouterPolicy.php:10-28`, `NetworkAccountController.php:23` and `authorizeAccount()`, `database\migrations\2026_09_16_000002_add_tenant_and_role_to_users_table.php` | The Section 10 gap is concrete: the 6I policy must require an operator role and re-verify tenancy even where a policy already passed |
+| 14 | `RouterPolicy::operate()` delegates to `view()`, which is a pure `tenant_id` equality test, so **tenancy is the only authorization factor in the application**; `User.role` is an inert plain `string` column (`default 'admin'`, no enum/CHECK, not in `User::$fillable`) that is read **nowhere** in `app`, `config`, `routes`, or `tests`, and whose only two written values are `admin` (factory) and `owner` (seeder) — there is no `manager` or `customer` value anywhere in the repository | `app\Policies\RouterPolicy.php:10-28`, `app\Models\User.php:21-26`, `database\migrations\2026_09_16_000002_add_tenant_and_role_to_users_table.php:13`, `database\factories\UserFactory.php:34`, `database\seeders\DatabaseSeeder.php:30`, plus a case-insensitive `git grep -i role -- app config routes tests` that returns no matches | Section 10 does not reuse an existing role mechanism, it **creates** the first one; the earlier `admin\|manager\|customer` claim in this row was wrong and is corrected by the full audit in Section 55 |
 | 15 | Legacy write routes are live today: `network.accounts` store/enable/disable/profile/disconnect plus a `{account}/{status}` route, guarded only by tenancy and the adopted-row 422 | `routes\web.php:70-75`, `NetworkAccountController.php:56-64` | Phase 6I must convert these call sites into the controlled path rather than adding a parallel endpoint set |
 | 16 | Device identity and version come from the latest successful snapshot's `snapshot['device']` (`name`, `routeros_version`, `architecture`, `board_name`, `platform`) | `app\Http\Controllers\NetworkDiscoveryController.php:25-32` | Section 8's supported-version precondition should read this evidence, not a new router column |
 | 17 | The test environment is PostgreSQL `cosmiclink_test` with Redis cache and array sessions; feature suites end at `Phase6HReconciliationAdoptionTest.php` | `phpunit.xml:20-42`, `tests\Feature`, `tests\Unit` | Section 43 filename and service prerequisites pinned |
@@ -889,6 +889,174 @@ Measured at this audit, read-only with no hardware: `go vet ./...` exits 0 and `
 4. Real mode behind both kill switches, then Blade affordances, then full-suite regression and zero-write evidence.
 
 No step above is authorized by this audit. Implementation begins only after explicit approval of this plan.
+## 55. Authentication, Authorization, and Tenancy Audit (read-only)
+
+Performed from source before any implementation, because Sections 10, 32, and 36 describe authorization rules. This section records what the application actually does today, so that Phase 6I neither assumes a role system exists nor pretends one is absent.
+
+### 55.1 Authentication surface
+
+| Verified fact | Evidence |
+|---|---|
+| Exactly one guard: `web` (session driver) on the `users` provider, model `App\Models\User`; no token guard, no Sanctum, no Passport | `config\auth.php:18-21`, `40-45`, `64-68` |
+| Login is `Auth::attempt(['email','password'])` + `session()->regenerate()` + `redirect()->intended('/dashboard')`; logout invalidates the session and regenerates the token. No 2FA, no password confirmation, no session/device management | `app\Http\Controllers\AuthController.php:15-33` |
+| No login throttling exists: no `throttle` middleware and no `RateLimiter::for` anywhere in `app`, `routes`, `bootstrap`, or `config`; the `passwords.users.throttle` value is dead config because there is no password-reset route or controller | `git grep -n "throttle\|RateLimiter" -- app routes bootstrap config` matches only `config\auth.php:100`; `routes\web.php:22-25` |
+| The only middleware registered by the application is the `auth` alias (pointing at the framework's own `Authenticate`); `app\Http\Middleware` does not exist, so there is no role, tenancy, or onboarding middleware | `bootstrap\app.php:15-17`, `Test-Path app\Http\Middleware` is `False` |
+| One `Route::middleware('auth')` group protects every web surface; the JSON API reuses `['web','auth']`, so it authenticates with the same browser session and inherits the `web` group's CSRF posture | `routes\web.php:27`, `routes\api.php:7` |
+| The machine plane is separate and is not a user path: `/api/v1/agent/*` carries no session middleware and authenticates a bearer `token_id.secret` via `token_id` lookup plus `Hash::check`, with a legacy scan for `token_id IS NULL`; each mutation then re-checks tenant match, job ownership, `attempt`, and a `hash_equals` fence token | `routes\api.php:23-28`, `app\Http\Controllers\AgentApiController.php:46-52`, `app\Services\Network\NetworkAgentService.php:30-52`, `138-143`, `182-195` |
+| Agents can only ever be handed `DISCOVER_ROUTER` work today; there is no agent-side mutation job type | `app\Services\Network\NetworkAgentService.php:138` |
+| There is no user-administration surface of any kind (no `users` routes), so `role` and `tenant_id` are never set from an HTTP request | `routes\web.php`, `routes\api.php` |
+
+Consequence for Phase 6I: an authenticated principal is always a human member of one tenant, and the agent plane must not be widened into a mutation entry point without its own authorization story (fence, job type, and tenant checks already give it one).
+
+### 55.2 Authorization is tenancy and nothing else
+
+`AppServiceProvider::boot()` registers eight policies and **no `Gate::before`**, so there is no superuser bypass and no global role rule. Each ability in each policy reduces to the same expression, `$user->tenant_id === $model->tenant_id`:
+
+| Policy | Abilities | Body, in effect |
+|---|---|---|
+| `RouterPolicy` | `view`, `update`, `delete`, `operate` | `view` = tenant equality; `update`, `delete`, `operate` each `return $this->view(...)` |
+| `CustomerPolicy` | `view`, `update`, `delete` | same |
+| `InternetPackagePolicy` | `view`, `update` | same |
+| `CustomerConnectionPolicy` | `view`, `update` | same |
+| `InvoicePolicy` | `view`, `update` | same |
+| `PaymentPolicy` | `view`, `create` | same |
+| `PaymentRequestPolicy` | `view` | tenant equality only |
+| `OutageIncidentPolicy` | `view`, `acknowledge` | `acknowledge` = `view()` **and** `$incident->status === 'detected'` — a lifecycle precondition, not a privilege |
+
+Evidence: all eight files under `app\Policies\` read in full; `app\Providers\AppServiceProvider.php:71-81`.
+
+Models with no policy class at all — `NetworkAccount`, `DiscoveredNetworkResource`, `NetworkOperationLog`, `HealthObservation`, `NetworkAgent`, `NetworkAgentJob` — are protected instead by inline tenancy checks or `where('tenant_id', ...)` scoping, for example `NetworkAccountController.php:59-63`, `AdoptDiscoveredNetworkResource.php:16` and `:56`, and `OperationLogController::index`. Tenancy only, again.
+
+Therefore the application has **object-level tenancy authorization and zero functional authorization**. There is no way today to express "this user may write to a router but may not edit a customer", and the same is true in reverse: every authenticated user of a tenant can already create, enable, disable, re-profile and disconnect PPPoE accounts, run discovery, adopt and unadopt resources, edit and delete routers, generate invoices, record payments, and suspend or reactivate connections.
+
+### 55.3 Tenancy enforcement is consistent and fail-closed
+
+- The authoritative tenant is always `Auth::user()->tenant_id` — 44 occurrences across 14 controllers — and **no** controller or action reads `tenant_id` from request input (`git grep` for request-sourced `tenant_id` returns no matches).
+- The service and action layer repeats the check rather than trusting the caller: `ProvisionCustomerConnection.php:18`, `RecordPayment.php:16`, `ProcessPaymentProviderEvent.php:18`, `SendCustomerMessage.php:20`, `SuspendCustomerConnection.php:17`, `GenerateInvoiceForConnection.php:17`, `MonitoringService.php:18-32`, `OutageCorrelationService.php:26`, `AdoptDiscoveredNetworkResource.php:16-56`, `NetworkAgentService.php:138` and `:194`.
+- `users.tenant_id` is nullable, and because every comparison is strict (`===`), a user with a null tenant matches nothing and is denied. Phase 6I must preserve this: no `==`, no `??`-coalesced tenant ids, no "empty means unrestricted".
+- Laravel to Go passes `tenant_ref` and `router_ref` for correlation only; the engine shares no session or cookie with Laravel, so tenancy can never be delegated to it (`GoNetworkDriver.php:52-60`).
+
+### 55.4 How tenancy is actually enforced, and where it is fragile
+
+- There is **no global tenant scope**: `git grep "addGlobalScope" -- app` returns nothing, and the only `booted()` methods in `app\Models` are code generators for `customer_code`, `connection_code`, and `invoice_number` (`Customer.php:14-18`, `CustomerConnection.php:16-20`, `Invoice.php:16-20`).
+- Tenancy therefore rests entirely on two hand-written patterns: query-level `where('tenant_id', Auth::user()->tenant_id)` for lists, and `Gate::authorize(...)` / `abort_unless($model->tenant_id === Auth::user()->tenant_id, ...)` for bound singletons (`ApiController.php:41`, `:108`, `:118`, `:133`, `:140`; `NetworkAccountController.php:61`; `NetworkAgentController.php:33`).
+- The status code for a cross-tenant hit is inconsistent: `NetworkAgentController::show` returns **404**, `NetworkAccountController::authorizeAccount` returns **403**, `AdoptDiscoveredNetworkResource` returns **403**. Phase 6I must pick one and say why; a mutation endpoint that reveals existence through a 403/404 split is an information leak across tenants.
+- Route-model binding is used for singletons, which means a bound `Router`, `NetworkAccount`, or `CustomerConnection` reaches controller code **before** any tenancy proof exists. The tenancy proof is only as reliable as the developer remembering to add it per action. For 6I this is the decisive constraint: a new mutating route must not rely on remembering a per-controller check.
+- Two pre-existing non-tenancy guards are state preconditions that behave like authorization and must be respected rather than bypassed: adopted-account protection (`NetworkAccountController.php:62` → 422 "Adopted accounts are read-only."; `SuspendCustomerConnection.php:17`, `ReactivateCustomerConnection.php:16`), and discovery evidence freshness (`AdoptDiscoveredNetworkResource.php:29-30` → 422 on state, 409 on stale `last_seen_at > 24h`).
+
+### 55.5 The `role` column is inert — there is no role system to reuse
+
+| Verified fact | Evidence |
+|---|---|
+| `users.role` is `string` with default `admin`, indexed alongside `tenant_id`; there is **no enum, no CHECK constraint, no allowlist** anywhere | `database\migrations\2026_09_16_000002_add_tenant_and_role_to_users_table.php:13-15` |
+| Nothing in the PHP application, config, routes, front-end, or tests ever **reads** `role` — `git grep -n role -- app` returns zero matches | verified across `app`, `config`, `routes`, `resources`, `tests` |
+| Only two values are ever written: `owner` by the seeder and `admin` by the default factory state; `manager` and `customer` do not exist anywhere in the repository | `database\seeders\DatabaseSeeder.php:30`, `database\factories\UserFactory.php:34` |
+| `role` is **not** in `User::$fillable` (`['tenant_id','name','email','password']`), so `$user->update(['role' => 'x'])` silently does nothing | `app\Models\User.php:21-26` |
+| Factories do bypass mass assignment, because Laravel instantiates models inside `Model::unguarded()`; so `User::factory()->create(['role' => 'x'])` works while an equivalent `update()` would not | `vendor\laravel\framework\src\Illuminate\Database\Eloquent\Factories\Factory.php:516` (`makeInstance`) |
+| No permission package exists (no `spatie/laravel-permission` in `composer.json`), no `roles` table, no `role_has_permissions` table, and no `Gate::before` superuser rule | `composer.json`, `database\migrations`, `app\Providers\AppServiceProvider.php:71-81` |
+| There is no user-administration route, so no HTTP path can change `role` today; the only way an operator user exists is by seeding or direct database edit | `routes\web.php`, `routes\api.php` |
+
+This means Section 54.1 fact 14's earlier wording was wrong and has been corrected, and it changes what Section 10 means: 6I does not extend an authorization model, it introduces the **first** functional rule the application will ever evaluate beyond tenancy.
+
+### 55.6 Decisions this audit forces on Section 10
+
+1. **Vocabulary must be declared, not inherited.** Only `admin` and `owner` exist in any environment. The plan's operator set must therefore be exactly those two values (or a new value introduced deliberately), expressed as a config allowlist, e.g. `network.mutations.operator_roles` defaulting to `['owner','admin']`. Hard-coding `in_array($user->role, ['admin','owner'])` in several files is prohibited; one resolver, one source of truth.
+2. **Unknown and null roles must deny.** Because there is no CHECK constraint, any string can already be in a production `role` column, and `null` is possible on rows inserted outside the schema default path. The rule is a positive allowlist, never a `!== 'customer'` exclusion, so a future non-staff role cannot inherit write rights by accident.
+3. **`RouterPolicy::operate` cannot simply be tightened.** It is a shared ability also used by `network.accounts.store`, `monitoring.routers.observe`, and `monitoring.simulation.*` (`NetworkAccountController.php:23`, `MonitoringController.php:20`, `ApiController.php:108`). Changing `operate` to require an operator role would silently change the authorization of read and simulation surfaces documented in Sections 41 and 54.1 fact 15. The mutation gate must therefore add its own operator rule for writes, and Section 41's shared-allowlist warning applies unchanged.
+4. **The gate must be a choke point, not a convention.** Section 55.4 shows tenancy today is remembered per action. Every 6I mutation must fail closed if the gate is not called: gate evaluation happens inside the single operation service entry point (Section 42), and the request object carries actor, tenant, capability, and operation. A controller that "forgets" the check must be unable to reach the driver.
+5. **Cross-tenant response code must be fixed by the plan.** Recommended: `404` for "not in your tenant" on all new mutation endpoints, matching `NetworkAgentController::show` and avoiding existence disclosure, with `403` reserved for "in your tenant, but not permitted by role, capability, mode, or flag".
+6. **Adopted-resource protection is inherited, not optional.** Any 6I write that can target a `NetworkAccount` must reproduce the adopted read-only rule (Section 55.4) or the new path becomes an escape hatch around an existing invariant.
+
+### 55.7 Test-harness consequences (blocks the TDD step in Section 43)
+
+- The default factory user is `role => 'admin'` with a tenant, so a test that only checks "an authenticated tenant user is denied" will pass for the wrong reason only when the allowlist excludes `admin`. Every authorization test must state both directions explicitly: an allowed role passes, a non-operator role is denied, and the deny reason is asserted (mode, flag, capability, or tenancy) rather than merely the status code.
+- Because `role` is not mass-assignable, changing a user's role inside a test requires `User::factory()->create(['role' => 'x'])`, `$user->forceFill(['role' => 'x'])->save()`, or a named factory state. A plain `$user->update(['role' => 'x'])` is a silent no-op that would make a denial test pass vacuously. Add a `customerUser()` / `operatorUser()` state to `UserFactory` rather than scattering `forceFill` calls.
+- `Router`, `CustomerConnection`, `Customer`, `Tenant`, `HealthObservation`, `NetworkOperationLog`, `OutageIncident`, `Invoice`, `Payment`, `PaymentRequest`, `MessageLog`, `InternetPackage` have factories; **`NetworkAccount` and `DiscoveredNetworkResource` do not**, so tests that need an account-level or resource-level mutation must build those rows by hand (or gain new factories declared in the plan).
+- Tests must be written so that a null-tenant user and a null-role user are denied, locking in the fail-closed behaviour that Section 55.3 shows is currently only accidental.
+- No existing test covers authorization denial at all (Section 54.1 fact 18: zero `403`/`404`/`assertForbidden` assertions), so every denial-path assertion in 6I is new coverage and must not be "borrowed" from a passing 200-only baseline.
+
+
+
+## 56. Network-Operation Authorization Evidence Table and Prerequisite Record
+
+Written after §55 and before any RouterOS work, because the Section 10 gate is meaningless while `User->role` is inert. This is the completed evidence mapping for every billing and network entry point, plus the record of the prerequisite fix that the audit forced.
+
+### 56.1 Entry-point evidence table (state as found at branch tip `4a3041e`)
+
+| # | Entry point | Route / caller | Authorization as found | Reaches a device? |
+|---|---|---|---|---|
+| 1 | `RouterController::test` | `POST /routers/{router}/test`, `routes/web.php:62` | `Gate::authorize('operate', $router)` (`RouterController.php:75`); `RouterPolicy::operate` = tenancy only (`RouterPolicy.php:25-28`) | yes, driver test |
+| 2 | `NetworkAccountController::store` | `POST /network/accounts`, `:70` | tenancy only through `operate` (`NetworkAccountController.php:21-24`) | yes, `CREATE_PPPOE` |
+| 3 | `NetworkAccountController::status` / `profile` / `disconnect` | `:71-75` | inline `abort_unless($account->tenant_id === Auth::user()->tenant_id, 403)` + adopted-account 422 (`:59-63`); no policy, no role | yes, `ENABLE/DISABLE/SET_PROFILE/DISCONNECT_SESSION` |
+| 4 | `CustomerConnectionController::provision` | `POST /connections/{connection}/provision`, `:56` | `Gate::authorize('update', $connection)` → `CustomerConnectionPolicy` = tenancy only | yes, `CREATE_PPPOE` via `ProvisionCustomerConnection.php:36` |
+| 5 | `NetworkDiscoveryController::discover` | `POST /network/discovery/routers/{router}`, `:67` | tenancy only through `operate` (`:50`) | yes, discovery client |
+| 6 | `MonitoringController::check` | `POST /monitoring/check`, `:41` | **no authorization object at all** — session plus the actor's own `tenant_id` (`:35-40`) | yes, probes every router in tenant |
+| 7 | `MonitoringController::observeRouter` / `observeConnection` | `:42-43` | `Gate::authorize('view', ...)` = tenancy only (`:44`, `:52`) | yes, single probe |
+| 8 | `ApiController::check` | `POST /api/v1/monitoring/check`, `routes/api.php:15` | none beyond `['web','auth']` | yes |
+| 9 | `BillingController::overdue` | `POST /billing/overdue`, `:32` | none beyond `auth`; `ProcessOverdueBilling` walks the tenant's overdue invoices | yes, via `SuspendCustomerConnection` |
+| 10 | `PaymentController::store` → `RecordPayment` | `POST /billing/invoices/{invoice}/payments`, `:34` | `PaymentPolicy::create` = tenancy only | yes, via `ReactivateCustomerConnection` |
+| 11 | `EnforceBillingCommand` | `php artisan billing:enforce` | console; actor is `$tenant->users->first()`, i.e. an arbitrary member that may hold the `customer` role | yes |
+| 12 | Read surfaces: `routers.index/show`, `network.accounts.index`, `network.logs.index`, `monitoring.index`, `GET /api/v1/*` | — | tenancy only, deliberately unchanged | no |
+| 13 | `monitoring.*.simulation`, `api.v1.monitoring.*.simulation` | `:44-45`, `api.php:16-17` | `update` / `view` plus `abort_unless(config('monitoring.simulation'), 403)`; writes only `health_observations` | no |
+| 14 | `network.discovery.adopt` / `unadopt` | `:68-69` | tenancy plus local `management_state` bookkeeping | no |
+| 15 | `/api/v1/agent/*` | `api.php:23-28` | bearer `token_id.secret`, then tenant, job-ownership, attempt and `hash_equals` fence checks | machine plane, `DISCOVER_ROUTER` only |
+| 16 | user administration | — | none exists; `role` is absent from `User::$fillable` (`app/Models/User.php:21-26`), so role is never settable from HTTP | n/a |
+
+Two corrections to §55, both from re-checking the code with `git grep`:
+
+1. §55.6 item 3 claimed `operate` is shared with the simulation surfaces. It is not: `Gate::authorize('operate', ...)` exists at exactly three sites — `RouterController.php:75`, `NetworkAccountController.php:23`, `NetworkDiscoveryController.php:50`. The simulation endpoints authorize with `update`/`view` (`ApiController.php:108`, `MonitoringController.php:60`) and are additionally gated by `config('monitoring.simulation')`.
+2. §55.7's last bullet claimed zero denial coverage. Tenant-level denial assertions do exist (`Phase1ProvisioningTest.php:38,42,55`, `Phase0FoundationTest.php:39`); what genuinely did not exist was any test that distinguishes **roles**, because role was never read.
+
+### 56.2 Prerequisite fix — implemented (first executable task on this branch)
+
+Rule, stated once: **a device operation requires the tenant boundary *and* a role listed in `config('network.operator_roles')` (default `owner,admin`). Missing, empty, unknown, or differently-cased roles fail closed.** Tenancy remains the data-isolation boundary and is unchanged everywhere.
+
+| Change | File | Effect |
+|---|---|---|
+| `network.operator_roles` parsed from `NETWORK_OPERATOR_ROLES` (trim, dedupe, empties dropped) | `config/network.php` | allowlist is deployment-controlled; an empty value denies every role rather than allowing all |
+| `User::isNetworkOperator(): bool` | `app/Models/User.php` | single capability resolver; `$this->role !== null && in_array((string) $this->role, $roles, true)` |
+| `Gate::define('operate-network', ...)` | `app/Providers/AppServiceProvider.php` | one named, greppable capability; policies compose tenancy on top of it |
+| `RouterPolicy::operate()` = `view()` **and** `operate-network` | `app/Policies/RouterPolicy.php` | tightens table 1, 2, 5 and, through reuse, 3, 4 |
+| `authorizeAccount()` additionally `Gate::authorize('operate', $account->router)` | `app/Http/Controllers/NetworkAccountController.php` | closes table 3 (enable, disable, `{status}`, profile, disconnect) with no new policy class |
+| `provision()` additionally `Gate::authorize('operate', $connection->router)` after the existing `update` check | `app/Http/Controllers/CustomerConnectionController.php` | closes table 4; connection tenancy still produces the first 403 for foreign rows |
+| `check` / `observeRouter` / `observeConnection` require `operate-network` / `operate` | `app/Http/Controllers/MonitoringController.php` | closes tables 6, 7; a monitoring probe is device contact, so it follows the same rule |
+| `ApiController::check` requires `operate-network` | `app/Http/Controllers/Api/V1/ApiController.php` | closes table 8; the web and API forms of one operation cannot diverge |
+| `NETWORK_OPERATOR_ROLES=owner,admin` documented | `.env.example` | operators can narrow or widen without code |
+| 13 new tests, 90 assertions | `tests/Feature/NetworkOperatorAuthorizationTest.php` | both directions for every gated surface, plus the invariants below |
+
+No migration, no new policy class, no new route, no middleware, no change to `User::$fillable` (role stays unassignable from HTTP, so the fix cannot be self-escalated), and no change to any read or billing path. Existing 403 status semantics are preserved on all pre-existing surfaces; §55.6's recommendation to answer cross-tenant lookups with 404 applies to the **new** Phase 6I endpoints only, where the request contract is being defined anyway.
+
+Tests pin, in addition to allow/deny: unknown, empty and case-mismatched roles fail closed; the allowlist is configuration-driven (with `['owner']`, `admin` is denied and `owner` succeeds); a cross-tenant operator is still denied and writes nothing; a non-operator keeps dashboard, customer, package, invoice, router-list, account-list, monitoring-list, operation-log and `api/v1` read access, and can still edit customer records; guests are still redirected (`web`) or answered `401` (JSON) before any role logic; a denial produces **zero** `network_operation_logs` rows, proving the check sits before dispatch; and with `network.driver=go` plus `Http::fake()`, a denied customer-role request sends **no** transport request at all (`Http::assertNothingSent()`), proving the rule is enforced before the engine is reached.
+
+### 56.3 Deliberate exclusions and the residual gap this leaves
+
+Billing-initiated device writes — table 9 (`POST /billing/overdue`), table 10 (verified payment → reactivate), table 11 (`php artisan billing:enforce`) — **remain tenancy-only**. Closing them here was ruled out because the prerequisite directive forbids billing-enforcement changes, and because the console path chooses its actor with `$tenant->users->first()`, which can legitimately resolve to a `customer`-role member; making the console honor the operator rule would alter enforcement behaviour, and making it skip such a tenant would silently stop suspensions. That is a behaviour change, not a hardening, and belongs to Phase 6I's own billing-isolation work (§34, §47 gate "billing must never reach real RouterOS writes").
+
+Residual risk, stated plainly: today a `customer`-role member of a tenant can still cause a device write by clicking *Mark overdue* or by paying an invoice, and the nightly scheduler can do so with no human at all. The mitigation until that gap closes is entirely §11's kill switch plus §34's isolation, not role. Follow-ups recorded as tasks, not assumptions:
+
+1. Phase 6I §34: assert in tests that billing paths cannot dispatch a real RouterOS write while the mutation switch is off, and decide whether billing actors need a service-account identity rather than an arbitrary tenant member.
+2. Phase 6I §36: Blade has **zero** `@can` usage today (`git grep -n "@can" -- resources/views` is empty), so every network button is visible to every tenant member and fails with 403 on submit. Hide `routers.test`, account mutations, provisioning, discovery and monitoring actions behind `@can('operate', $router)` / `@can('operate-network')` in the same pass that adds the safety UI.
+3. Out of 6I scope: a user-administration surface is required before roles are operable in production (there are no `users` routes, and `role` is not mass-assignable); roles are currently changed only by seeding or direct SQL.
+
+### 56.4 Verification evidence
+
+| Gate | Result |
+|---|---|
+| Red, before the fix | Branch HEAD code with the new file: **7 failed / 6 passed**; every failure was `Expected response status code [403] but received 302`, i.e. the customer-role user actually performed the device operation and got a success redirect. Captured with the implementation stashed (`git stash push -- app config/network.php .env.example`), then restored (`git stash pop`, stash list empty) |
+| Green, focused | `php artisan test --filter=NetworkOperatorAuthorizationTest` → **13 passed (90 assertions)** |
+| Regression, whole suite | `php artisan test` → **129 passed, 3 skipped, 0 failures (668 assertions)**; baseline without the new file was 116 passed, 3 skipped, so the fix broke no existing expectation and added 13 |
+| Style | `vendor/bin/pint --test app config tests/Feature/NetworkOperatorAuthorizationTest.php` → **PASS, 113 files** |
+
+The 3 skipped tests are pre-existing skips (`Phase6BGoNetworkEngineIntegrationTest`, `Phase6CLiveDiscoveryIntegrationTest`, `GoNetworkDriverTest`) — they require a live engine or hardware and are the reason §47's hardware acceptance stays deferred.
+
+### 56.5 Two environment facts corrected against the resumed context
+
+1. **No Phase 6I implementation exists on this branch.** `git log --oneline -3` shows the tip as `4a3041e CosmicLink Phase 6I plan controlled RouterOS operations`, and `git log --all --diff-filter=A` finds no commit anywhere that adds a RouterOS operation guard or Phase 6I tests. The resumed note that "Phase 6I implementation is complete, 16 files / 612 tests passed" is therefore not accurate: the suite on this branch contains 132 tests in 27 files, not 612. Tasks 1-16 of this plan remain to be implemented, and the prerequisite above is the only code change so far.
+2. **The worktree had no dependencies, no `.env`, and no built assets.** Repaired locally, all inside gitignore: `composer install`, `.env` copied from `.env.example`, and `public/build` copied from the `master` checkout (the previous `vendor` junction was removed — a junction to another checkout makes Composer's `App\` autoload point at that other tree, which silently runs the wrong code; that is what produced the first misleading red run).
+
+### 56.6 Next executable task
+
+Task 1 (RouterOS operation allowlist / provider-registration migration groundwork) is now unblocked: the authorization boundary it must inherit is defined, tested, and consistent across every existing device-dispatching surface.
 
 # PHASE 6I PLAN — READY
 

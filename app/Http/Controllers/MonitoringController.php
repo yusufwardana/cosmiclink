@@ -34,6 +34,9 @@ class MonitoringController extends Controller
 
     public function check(MonitoringService $monitoring)
     {
+        // Observing a tenant probes every router in it, so it is a device
+        // operation rather than a page read.
+        Gate::authorize('operate-network');
         $monitoring->observeTenant(Auth::user()->tenant_id, Auth::user());
 
         return back()->with('status', 'Monitoring check completed.');
@@ -41,7 +44,7 @@ class MonitoringController extends Controller
 
     public function observeRouter(Router $router, MonitoringService $monitoring)
     {
-        Gate::authorize('view', $router);
+        Gate::authorize('operate', $router);
         $monitoring->observeRouter($router, Auth::user());
 
         return back()->with('status', 'Router health observed.');
@@ -50,6 +53,7 @@ class MonitoringController extends Controller
     public function observeConnection(CustomerConnection $connection, MonitoringService $monitoring)
     {
         Gate::authorize('view', $connection);
+        Gate::authorize('operate', $connection->router);
         $monitoring->observeConnection($connection, Auth::user());
 
         return back()->with('status', 'Connection health observed.');

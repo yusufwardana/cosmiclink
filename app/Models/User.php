@@ -31,6 +31,21 @@ class User extends Authenticatable
     }
 
     /**
+     * Whether this user may dispatch network (RouterOS / PPPoE) operations.
+     *
+     * Capability check only: tenancy is enforced separately by the policies.
+     * A missing, empty, or unlisted role fails closed. The `role` column is
+     * deliberately absent from $fillable, so it cannot be escalated through
+     * ordinary mass assignment.
+     */
+    public function isNetworkOperator(): bool
+    {
+        $roles = (array) config('network.operator_roles');
+
+        return $this->role !== null && in_array((string) $this->role, $roles, true);
+    }
+
+    /**
      * The attributes that should be hidden for serialization.
      *
      * @var list<string>

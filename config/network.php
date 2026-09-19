@@ -4,6 +4,17 @@ return [
     'driver' => env('NETWORK_DRIVER', 'fake'),
     'simulation' => env('NETWORK_DRIVER', 'fake') === 'fake',
     'discovery_provider' => env('NETWORK_DISCOVERY_PROVIDER', 'fake'),
+    /*
+    | Roles allowed to dispatch network (RouterOS / PPPoE) operations.
+    |
+    | This is a capability allowlist, not a data-isolation boundary: tenant
+    | membership is still required by the policies. Any role that is missing,
+    | empty, or not listed here fails closed.
+    */
+    'operator_roles' => array_values(array_unique(array_filter(
+        array_map('trim', explode(',', (string) env('NETWORK_OPERATOR_ROLES', 'owner,admin'))),
+        fn ($role) => $role !== ''
+    ))),
     'routeros' => [
         'transport' => env('ROUTEROS_DISCOVERY_TRANSPORT', 'api_ssl'),
         'connect_timeout_seconds' => (int) env('ROUTEROS_DISCOVERY_CONNECT_TIMEOUT_SECONDS', 3),

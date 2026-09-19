@@ -35,6 +35,9 @@ class CustomerConnectionController extends Controller
     public function provision(CustomerConnection $connection, ProvisionCustomerConnection $provisioner)
     {
         Gate::authorize('update', $connection);
+        // Provisioning writes a PPPoE secret/profile onto the device, so it uses
+        // the same operator capability boundary as the other device writes.
+        Gate::authorize('operate', $connection->router);
         $provisioner->handle($connection, Auth::user());
 
         return back()->with('status', $connection->fresh()->status === 'active' ? 'Connection provisioned.' : 'Provisioning failed.');

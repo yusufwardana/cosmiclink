@@ -59,6 +59,9 @@ class NetworkAccountController extends Controller
     private function authorizeAccount(NetworkAccount $account): void
     {
         abort_unless($account->tenant_id === Auth::user()->tenant_id, 403);
+        // Same capability boundary as every other device write: a tenant-scoped
+        // account row is not enough, the actor must be a network operator.
+        Gate::authorize('operate', $account->router);
         abort_unless(! data_get($account->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
     }
 }
