@@ -10,11 +10,11 @@ class NetworkAccount extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'router_id', 'username', 'profile', 'status', 'metadata', 'encrypted_secret'];
+    protected $fillable = ['tenant_id', 'router_id', 'username', 'profile', 'status', 'metadata', 'encrypted_secret', 'management_state', 'managed_at', 'managed_by_user_id', 'revoked_at', 'revoked_by_user_id', 'management_scope'];
 
     protected $hidden = ['encrypted_secret'];
 
-    protected $casts = ['metadata' => 'array'];
+    protected $casts = ['metadata' => 'array', 'managed_at' => 'datetime', 'revoked_at' => 'datetime', 'management_scope' => 'array'];
 
     public function tenant()
     {
@@ -29,6 +29,16 @@ class NetworkAccount extends Model
     public function connections()
     {
         return $this->hasMany(CustomerConnection::class);
+    }
+
+    public function managedBy()
+    {
+        return $this->belongsTo(User::class, 'managed_by_user_id');
+    }
+
+    public function revokedBy()
+    {
+        return $this->belongsTo(User::class, 'revoked_by_user_id');
     }
 
     public function setSecret(string $secret): void

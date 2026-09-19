@@ -6,6 +6,8 @@ use App\Models\Customer;
 use App\Models\CustomerConnection;
 use App\Models\InternetPackage;
 use App\Models\Invoice;
+use App\Models\NetworkAccount;
+use App\Models\NetworkOperationLog;
 use App\Models\OutageIncident;
 use App\Models\Payment;
 use App\Models\PaymentRequest;
@@ -15,6 +17,8 @@ use App\Policies\CustomerConnectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\InternetPackagePolicy;
 use App\Policies\InvoicePolicy;
+use App\Policies\NetworkAccountPolicy;
+use App\Policies\NetworkOperationPolicy;
 use App\Policies\OutageIncidentPolicy;
 use App\Policies\PaymentPolicy;
 use App\Policies\PaymentRequestPolicy;
@@ -77,6 +81,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('operate-network', fn (User $user): bool => $user->isNetworkOperator());
 
         Gate::policy(Router::class, RouterPolicy::class);
+        Gate::policy(NetworkAccount::class, NetworkAccountPolicy::class);
+        Gate::policy(NetworkOperationLog::class, NetworkOperationPolicy::class);
         Gate::policy(Customer::class, CustomerPolicy::class);
         Gate::policy(InternetPackage::class, InternetPackagePolicy::class);
         Gate::policy(CustomerConnection::class, CustomerConnectionPolicy::class);

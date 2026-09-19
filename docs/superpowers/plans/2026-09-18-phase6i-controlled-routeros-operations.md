@@ -1191,3 +1191,186 @@ No connection to the hEX was attempted or possible. The local run environment re
 ### 57.9 Deliberately out of scope
 
 No RouterOS write execution, connection, lease, retry, timeout classification, or `UNKNOWN_OUTCOME`; no migration, reservation, `router_credentials`, or `NETWORK_ENGINE_DEVICE_TOKEN`; no `MANAGED` transition or state change; no Laravel, billing, route, or UI change. Task 1 only makes the safe boundary exist and provable, so Task 2 (credential-backed `MATCHED` reconciliation) remains the next executable task.
+
+---
+
+# TASK DECOMPOSITION (appended after Task 1, at HEAD `571b827`)
+
+## 58. Explicit task list for implementation
+
+### 58.1 Why this section exists
+
+The request to implement "Task 2" assumed this plan defines one. It does not. Measured against the file on disk:
+
+- the token `task` occurs 23 times in these 1193 lines, and only 3 occurrences precede §56 — none defines a second task;
+- §56.6 "Next executable task" names Task 1 only, now committed as `571b827`;
+- the only "Task 2" string in the document is §57.9's closing sentence, quoted immediately above, written during Task 1;
+- no task ledger exists elsewhere: `docs/superpowers/plans` holds 8 plans and `docs/superpowers/specs` holds 2, none a task list.
+
+**Correction to §57.9 (appended; the original sentence is preserved above untouched):** that label was an inference made while writing Task 1 evidence, not a plan requirement, and §58 supersedes it. It conflicts with §54.5, whose order puts additive migration and model/gate scaffolding at step 1 — *before* step 2, which Task 1 executed — and the request-contract change at step 3.
+
+### 58.2 Frozen invariants every task below must preserve
+
+Re-established from source at `571b827` in this pass, not carried over from notes. Every file:line below was opened and read.
+
+| # | Invariant | Evidence on disk |
+|---|---|---|
+| 1 | Provider defaults to `fake` | `internal/config/config.go:28` `valueOrDefault("NETWORK_MUTATION_PROVIDER", "fake")` |
+| 2 | Empty, whitespace, wrong-case and unknown selections fail closed | `internal/provider/mutation_provider.go:47-56` and `:63-79`: both switches match the constant exactly, with no `TrimSpace` and no case folding, so anything else reaches `default:` → `ErrUnsupportedMutationProvider` |
+| 3 | `routeros` never falls back to fake | `mutation_provider.go:52` and `:75` both return `ErrRealMutationProviderUnavailable`; no arm of either switch yields the fake instance for that selection |
+| 4 | Real allowlist is exactly three operations | `internal/network/mutation.go:15-17` constants, `:39` `MutationOperations()`, `:48` `MutationOperationFor` accepting only those three; `CreatePPPOE` is not defined |
+| 5 | No raw-command surface | `internal/provider/routeros_write.go:60-63` maps three operations to two fixed sentence shapes; `PrepareRouterOSWrite` (`:114`) is the only builder, and no exported `execute`/`run`/`Send` exists |
+| 6 | Read-only transport stays read-only | `RouterOSTransport` (`Connect`/`Read`/`Close`) at `provider/routeros_discovery.go:35`; `guardedRead` (`:92`) rejects anything outside `allowedRouterOSReadCommands` (`:26`, the six `/print` sentences at `:18-23`) with `ErrForbiddenRouterOSCommand` (`:30`); monitoring keeps its own read-only transport (`internal/monitoring/routeros.go:126`) |
+| 7 | No production mutation transport exists | `RouterOSMutationTransport` is declared at `routeros_write.go:144` (`Connect`/`Write`/`Close`); searching tracked **and** untracked `.go` files finds it only at that declaration and in `routeros_operations_test.go` |
+| 8 | Device operations need tenant boundary AND operator role | `b4c5894`, recorded at §56.2 line 1012: the role must appear in `config('network.operator_roles')` (default `owner,admin`, line 1024) |
+
+### 58.3 Mapping to §54.5
+
+| §54.5 step | Plan text (verbatim, lines 886-889) | Executed by |
+|---|---|---|
+| 1 | "Additive migration plus model/gate scaffolding, tests first, deny by default" | Tasks 2-5 |
+| 2 | "Go `mutation_provider.go` and `routeros_operations.go` with tests, keeping `FakeProvider` the default and the read-only transport untouched" | **Task 1 — done (§57)** |
+| 3 | "Laravel and Go request-contract change in one commit (key forwarding, credential field, strict decode)" | Task 6 |
+| 4 | "Real mode behind both kill switches, then Blade affordances, then full-suite regression and zero-write evidence" | Tasks 7-11 |
+
+Step 1 is too coarse for one commit: it spans §7's fields, §10's policies, §11's kill switch, §24's idempotency, §26's codes, §30's audit fields, §39's backfill rules, §43's test list and §55.6-§55.7's decisions. Tasks 2-5 divide it so each deliverable is independently testable and revertible.
+
+### 58.4 Tasks
+
+Reachability classes: **R0** adds no path toward a real write; **R1** moves a real write closer but leaves it unreachable; **R2** can reach the router, and only after operator action.
+
+Constraints that bind Tasks 2-5, measured rather than assumed: `phpunit.xml` pins the test database to PostgreSQL `cosmiclink_test` with Redis, so feature tests cannot use SQLite in-memory (§43 line 671); `NetworkAccount` and `DiscoveredNetworkResource` have **no factories** (§55.7 line 974); `User::$fillable` omits `role`, so tests must use `forceFill` or named states or a denial assertion passes vacuously (§55.7 lines 972-973); every denial test must assert the *reason*, not just the status code (§55.7 line 972); cross-tenant is `404` and in-tenant-but-forbidden is `403` (§55.6 item 5).
+
+#### Task 2 — Additive schema, models, policies, deny-by-default gate (R0)
+
+Sources: §54.5 step 1, §7 (line 194), §10, §11, §26, §30, §39, §40, §43 lines 649-669, §55.6, §55.7.
+
+- One additive migration sorting after `2026_09_18_000028_add_network_agent_leases.php` (confirmed newest on disk).
+- `network_accounts` gains `management_state`, `managed_at`, `managed_by_user_id`, `revoked_at`, `revoked_by_user_id` and immutable `management_scope`; none exists today — its fillable is exactly `tenant_id, router_id, username, profile, status, metadata, encrypted_secret`.
+- **Naming collision the plan does not anticipate.** `management_state` already exists on `discovered_network_resources` (`database/migrations/2026_09_17_000024_create_network_discovery_tables.php:35`, default `DISCOVERED`), toggled `DISCOVERED` ↔ `ADOPTED` by `app/Services/Network/AdoptDiscoveredNetworkResource.php:24-66`, read by `NetworkReconciliationService.php:21` and rendered in `resources/views/customers/show.blade.php:90-91`. §7 line 194 asks for the same name on `network_accounts` with a further value, `MANAGED`. §8's precondition 5 tests the resource value while precondition 11 tests the account value, so the two vocabularies must stay distinct; Task 2 must not let one leak as the other's default.
+- `network_operation_logs` gains §30's fields (`network_account_id`, `idempotency_key`, `request_digest`, `provider`, `execution_mode`, pre/postflight evidence, `failure_code`, resolver actor/time/note); the model's fillable today carries none of them.
+- Policies for `NetworkAccount` and `NetworkOperationLog` with §10's three abilities, denying by default, driven by the existing `config('network.operator_roles')` (§56.2 line 1012) rather than a second role source; `RouterPolicy::operate()` stays untouched (§55.6 item 3 — it also guards `network.accounts.store`, monitoring observe and simulation routes).
+- `ControlledNetworkOperationGate` skeleton: missing or false `NETWORK_MUTATIONS_ENABLED` → `MUTATIONS_DISABLED` (§11), plus MANAGED, reconciliation, router-health and allowlist checks returning §26 codes; the choke point required by §55.6 item 4.
+- Backfill obeys §39 and §52 item 6: no account becomes MANAGED, no secret changes, no router calls.
+- RED first: gate denies while the switch is unset; a `customer`-role tenant user is denied every controlled operation even though `RouterPolicy::operate()` would pass it (§43 line 654); migration leaves zero MANAGED rows.
+- Touches no Go file, no wire contract, no credential, no router.
+- Commit: `Phase 6I Task 2 additive management-state schema and deny-by-default gate`
+
+#### Task 3 — ADOPTED → MANAGED and revocation, local-only (R0)
+
+Sources: §8 (the 12 preconditions at lines 204-215, inside a transaction with row locks), §9, §23, §32, §43 lines 651-653, §55.6 item 6.
+
+- Scope is the immutable three-operation set and no browser field may widen it (§8 line 217). Revocation returns the account to ADOPTED, preserves connection and evidence, appends audit, and makes zero router calls (§9).
+- RED: each of the 12 preconditions denied individually; `ONLINE != MANAGED` both ways (§7 lines 189-190); stale submission after revoke denied; the adopted-resource read-only rule reproduced (§55.6 item 6).
+- Commit: `Phase 6I Task 3 manual MANAGED authorization and revocation without router calls`
+
+#### Task 4 — Durable idempotency, reservation, concurrency (R0)
+
+Sources: §24, §25, §27, §28, §29, §30's states, §43 lines 662-663, §52 item 1.
+
+- Client key with tenant-scoped uniqueness plus a request digest: same key and digest replays the original result, same key with a different request yields `IDEMPOTENCY_CONFLICT` (§24 lines 439-440). One active operation per account, router serialization preferred, and no transaction held across a router wait (§25).
+- While an operation is `unknown`, further writes for that account are blocked (§25 line 452, §27 step 5). No automatic mutation retry (§28), no automatic compensation (§29).
+- **Gap to close by decision, not by citation:** the plan lists reservation states but gives no expiry duration or stale-lease reaping rule. Any timeout Task 4 introduces must be declared as a new decision with its own test rather than attributed to a source that does not exist (§58.7).
+- Commit: `Phase 6I Task 4 durable idempotency reservation and concurrency control`
+
+#### Task 5 — Billing isolation, sanitization, mode labels (R0)
+
+Sources: §4 lines 126-133, §31, §33, §34, §35, §43 line 667, §49, §50, §52 item 7.
+
+- Billing keeps its business-state transitions but never requests a real controlled operation: `ProcessOverdueBilling`, `SuspendCustomerConnection`, `ReactivateCustomerConnection`, `RecordPayment`, scheduler commands and provider events produce zero real mutation requests and zero real-mode logs even with `NETWORK_DRIVER=go` and both switches on (§34 line 532). Both gates are needed because billing calls the shared service directly (§52 item 7).
+- Assertions check persisted `network_accounts.status`, not only driver calls (§43 line 667). Recursive redaction per §31, `[SIMULATION]` / `[REAL NETWORK]` labelling per §33, and denial when a safety policy cannot evaluate (§35).
+- Must not regress `b4c5894`: tenant boundary AND operator role remain required for every device operation.
+- Commit: `Phase 6I Task 5 billing isolation guard, redaction and mode labels`
+
+#### Task 6 — Typed request contract across Laravel and Go, ONE commit (R1)
+
+Sources: §5's hardening list, §15 line 330, §16, §38, §40, §41 line 632, §43 line 664, §44, §54.1 facts 5-7 (lines 831-833), §54.5 step 3.
+
+- `network.Request` carries no credential field today and `internal/api/server.go` decodes mutations with `DisallowUnknownFields`, so the Laravel and Go sides must change together or every request is rejected (§41 line 632).
+- Forward the client key instead of deriving one: `app/Services/Network/GoNetworkDriver.php` is 108 lines, sets `idempotency_key` to `hash('sha256', operation|tenant|router|account|params)` at line 54, and uses `Str::uuid()` at line 49 only as the operation id (§54.1 fact 7).
+- **Credential handling, corrected against the plan:** §43 line 664 explicitly requires "forwarded (not re-derived) idempotency key **and router credential present in the Go request payload**", and §54.1 fact 5 (line 831) records that RouterOS admin credentials already travel Laravel→Go per request on read paths from `Router::password()`. This task extends an existing pattern rather than introducing a new one, and §14 line 309's ban on requesting or storing a password concerns the **PPPoE secret**, a different credential. There is no contradiction to resolve here; the only standing requirement is that the write-path credential is never persisted and falls under §31's redaction of `credential`/`credentials`/`encrypted_credentials`.
+- §52 item 3 stands: the routeros user's least-privilege review stays a separate out-of-band activity; this task must not change router permissions.
+- Preserve current Go constructor arity by adding one (for example `NewWithMutationProvider`), keeping `server_test.go` and `monitoring_test.go` compiling (§44 line 694), and keep §44's zero-mutation expectations intact.
+- Stays unreachable by construction: `routeros` selection still returns `ErrRealMutationProviderUnavailable` (§58.2 rows 3 and 7).
+- Commit: `Phase 6I Task 6 typed operation request contract across Laravel and Go`
+
+#### Task 7 — Real mutation provider behind dual kill switches (R2, default-off)
+
+Sources: §6 lines 167-174, §11, §12, §14, §17, §18-§22, §27, §44, §49, §52 items 2 and 9.
+
+- First production implementation of `provider.RouterOSMutationTransport` (`routeros_write.go:144`), keeping `Write` open only to a `RouterOSPreparedWrite`; no `execute`/`run`/`Send` surface, and the read-only `RouterOSTransport` stays untouched (§58.2 rows 5 and 6).
+- Requires both switches true: Laravel's `NETWORK_MUTATIONS_ENABLED` and Go's `NETWORK_ENGINE_MUTATIONS_ENABLED` (§11), with `MUTATIONS_DISABLED` returned before any request leaves Laravel.
+- Tests run against an in-memory fake transport only; "No Go test may connect to the production MikroTik" (§44 line 693). Cover §44's list: allowlist and route/operation pairing, v6 sentence construction, preflight/write/postflight, disconnect selection, no-op cases, auth/timeout/cancellation/protocol errors, postflight mismatch, unknown outcome, replay and conflict, redaction, fake counters, kill-switch off, unsupported operation rejection.
+- Also fix a now-stale comment: `mutation_provider.go:46` says the `routeros` selection is refused "until Task 4 registers a safe, auditable real provider". Under §58 the real provider is Task 7; reword the comment to name the condition rather than a task number.
+- After this task a real write additionally needs both switches on, `NETWORK_MUTATION_PROVIDER=routeros`, `MANAGED`, and every gate passing. Reachability must be reported from source, not from intent.
+- Commit: `Phase 6I Task 7 real RouterOS mutation provider behind dual kill switches`
+
+#### Task 8 — Blade safety UI and API endpoints (R1)
+
+Sources: §8 line 217, §11 line 245, §36, §37, §38, §42, §43.
+
+- §42 names four Blade views (`network/accounts`, `network/discovery`, `customers/show`, `network/logs`) and records that the audited UI is Blade-based with no Vue controlled-operation surface; do not re-theme or introduce Vue (§42 line 645).
+- Show mode, customer, username, router identity/version, management state, reconciliation and freshness, health and freshness, exact scope, unknown-password behaviour and forbidden operations, and block dangerous actions server-side as well as visually (§36 line 546). Render the kill-switch state explicitly (§11 line 245). Never offer a command input.
+- Commit: `Phase 6I Task 8 controlled operation safety UI and API endpoints`
+
+#### Task 9 — Fake end-to-end and full regression evidence (R0)
+
+Sources: §45, §46, §43 line 671, §58.2.
+
+- Discover, adopt, enable MANAGED locally, run each approved operation against fake state, assert logs, evidence and idempotency, revoke, then assert later requests are rejected — with zero RouterOS sockets and zero real mutation calls (§46 line 702). Change assertions only where Phase 6I intentionally isolates billing from real writes, and never weaken Phase 6H's zero-write guarantees (§45 line 698).
+- Commit: `Phase 6I Task 9 fake end-to-end and full regression evidence`
+
+#### Task 10 — Hardware acceptance (R2, the only task that touches the live hEX)
+
+Sources: §47, §48, §6 line 174, §14 line 309, §52 items 2, 3 and 9, §53.
+
+- Requires a dedicated safe PPPoE test account created manually by the operator outside CosmicLink — CosmicLink must not create it — plus the operator's stated recovery path, maintenance window, RouterOS version and least-privilege user scope (§47 line 706); otherwise record `real mutation acceptance: NOT EXERCISED`.
+- Accept only §48's three documented deltas from secret-free pre/post fingerprints and stop on any unrelated change. `.id` must be re-resolved at preflight, and 6.49.13 behaviour validated against authoritative documentation or a safe target first (§52 items 2 and 9).
+- Commit: `Phase 6I Task 10 hardware acceptance for controlled RouterOS operations`
+
+#### Task 11 — Final gates, security review and evidence
+
+Sources: §43, §44, §49's checklist, §53.
+
+- §53: implementation is not ready for hardware until focused Laravel tests, Go tests, available regressions, static checks, allowlist and raw-command searches, billing isolation, kill-switch, unknown-outcome, tenant/policy, redaction and fake E2E all pass. §49 adds the pre-approval security-review items, including "no caller-controlled RouterOS command". Evidence records measured counts and durations only.
+- Commit: `Phase 6I Task 11 final verification gates and evidence`
+
+### 58.5 Approval gates
+
+| Task | Class | Approvable now? | Needs separate approval |
+|---|---|---|---|
+| 2, 3, 4, 5 | R0 | yes — Laravel-only, additive, deny-by-default, no router contact | — |
+| 6, 8 | R1 | contract and UI groundwork, still unreachable | — |
+| 7 | R2 | code lands default-off, fake-transport tests only | the decision that a real write should ever be possible |
+| 9 | R0 | verification only, zero sockets | — |
+| 10 | R2 | touches the live hEX | explicit approval plus a designated test account (§47) |
+| 11 | — | verification only | — |
+
+Order is dependency-driven: Tasks 3, 4 and 5 read state introduced by Task 2; Task 6 needs Task 2's gate; Task 7 needs Task 6's contract; Tasks 8-11 follow §54.5 step 4.
+
+### 58.6 Designation of Task 2
+
+Under this decomposition **Task 2 is §54.5 step 1's schema and gate groundwork (R0)**: additive migration, management-state fields, audit-log fields, policies and the deny-by-default gate. It changes no Go file, no wire contract and no credential handling, and contacts no router. This supersedes §57.9's earlier label, which pointed at reconciliation instead (§58.1).
+
+### 58.7 Gaps, and corrections made while writing this section
+
+**Plan gaps a task must decide rather than cite:**
+
+1. **Reservation expiry has no specified duration or reaping rule.** §25 and §30 name the states and §27 blocks writes while an outcome is unknown, but nothing defines staleness. Task 4 must state whatever value it chooses as a new decision with its own test.
+2. **This plan contains no dry-run and no permission probe.** Searching all 1193 lines for `dry.?run` and `probe` returns nothing. An earlier draft of §58 proposed a task for exactly that, citing "§36 lines 33-38 and §52 items T8-T10"; both citations are false — §36 is UI Safety, lines 33-38 are the allowlist block, and §52's risks are numbered 1-9 with no `T` prefixes. That draft task was withdrawn rather than kept and renumbered around an invention. §49's "least-privilege RouterOS user reviewed out-of-band" and §52 item 3 are the nearest real requirements, and both point away from writing code.
+3. **A stale config-key recommendation.** §55.6 item 1 proposes `network.mutations.operator_roles` (line 963), but the key shipped in `b4c5894` and documented at §56.2 lines 1012 and 1024 is `network.operator_roles`. Tasks must use the implemented name; §55.6 is older committed prose and is left as written.
+4. **A misreference inside committed text.** §55.6 item 4 (line 966) says gate evaluation belongs "inside the single operation service entry point (Section 42)", but §42 is "Vue/UI Files Expected to Change". The real entry point is `NetworkOperationService` (§15, §40 line 593). Recorded here instead of edited, because §55.6 is already committed history.
+
+**How this section was checked.** The first §58 draft was discarded and rewritten after seven of its references failed against disk: `routeros.go:95` (no such file — the read guard is `guardedRead` at `routeros_discovery.go:92`), `routeros_write.go:18` as the mutation transport (that line holds the `removePPPActiveCommand` constant; the interface is `:144`), `mutation_provider.go:18` (a `var` block), `GoNetworkDriver` "lines 143-150" with `Str::uuid()` as the idempotency key (the file is 108 lines and the key is the `sha256` digest at `:54`), "§52 item 6" for hardware acceptance (item 6 is legacy-account safety; acceptance is §47), and a claimed §14-versus-§43 credential contradiction that does not exist (§58.4, Task 6). Every reference now in §58 was opened and read in this pass, and each was cross-checked against the plan's heading map rather than against recollection.
+
+### 58.8 Task 2 implementation evidence — 2026-09-19
+
+- Implemented the additive migration `2026_09_19_000029_add_controlled_network_operation_boundary.php`, model casts/relationships, `NetworkAccountPolicy`, `NetworkOperationPolicy`, `ControlledNetworkOperationGate`, and the default-off `NETWORK_MUTATIONS_ENABLED` configuration key.
+- Preserved the naming boundary: `network_accounts.management_state` defaults to `ADOPTED`; `discovered_network_resources.management_state` remains independently `DISCOVERED`/`ADOPTED`.
+- The gate denies missing/false mutation enablement with `MUTATIONS_DISABLED`, cross-tenant access with `TENANT_MISMATCH`, non-operators and non-allowlisted operations with `OPERATION_NOT_ALLOWED`, non-managed accounts with `NOT_MANAGED`, and missing Task 2 reconciliation/health evidence with `RECONCILIATION_NOT_MATCHED`. No operation callback or router transport is invoked.
+- RED evidence: the new focused test file initially failed 7 tests because the migration, gate, policies, and registrations did not exist; the failures were the expected missing-behavior failures.
+- Focused GREEN evidence: `php artisan test --filter=Phase6ITask2ControlledGateTest` passed 7 tests / 29 assertions after migration `2026_09_19_000029...` applied to PostgreSQL `cosmiclink_test`.
+- Regression evidence: `php artisan test --filter='Phase6ITask2ControlledGateTest|NetworkOperatorAuthorizationTest|GoNetworkDriverTest|FakeNetworkDriverTest'` passed 27 tests / 148 assertions; full Laravel `php artisan test` passed 136 tests / 697 assertions with 3 explicitly skipped integration tests.
+- Static/build evidence: Pint passed on 10 changed PHP files; `git diff --check` passed; all changed PHP files passed `php -l`; `network-engine` passed `gofmt`, `go build ./...`, `go vet ./...`, and `go test -count=1 ./...`.
+- Bounded secret/reachability review found no added credential values, no changed Laravel raw-command/RouterOS transport surface, no Go source changes, no wire-contract changes, and no router contact. Task 2 remains R0 and is complete at this boundary.
+- Commit boundary: `Phase 6I Task 2 additive management-state schema and deny-by-default gate`.
