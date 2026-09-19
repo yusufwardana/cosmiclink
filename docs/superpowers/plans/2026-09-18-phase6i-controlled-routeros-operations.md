@@ -1256,9 +1256,38 @@ Sources: §54.5 step 1, §7 (line 194), §10, §11, §26, §30, §39, §40, §43
 - Touches no Go file, no wire contract, no credential, no router.
 - Commit: `Phase 6I Task 2 additive management-state schema and deny-by-default gate`
 
+#### Task 2.5 — Durable Reconciliation Evidence (R0)
+
+Task 3 was attempted from verified HEAD `d40b9be` and correctly STOPPED before modification because `NetworkReconciliationService::reconcile()` calculates statuses ephemerally and persists no durable reconciliation result that a locked transaction can validate.
+
+- Add append-only historical reconciliation evidence attributing the exact tenant, router, adopted/current resource relationship, discovery evidence, account, connection where applicable, result/status, reconciliation time, relevant discovery timestamp, and stable identity/fingerprint data needed to detect stale evidence.
+- The schema/model shape discussed during planning is **proposed only**, not immutable. Before finalizing field names, foreign keys, inverse relationships, indexes, or whether an additional compared-resource identity is necessary, verify the actual current models, relationships, foreign keys, discovery-resource lifecycle, reconciliation semantics, and locking behavior.
+- `matched_discovery_resource_id`, relationship-fingerprint composition, exact inverse relationships, and exact indexes are implementation decisions subject to source verification, not unquestionable requirements.
+- Required safety properties: durable evidence; preserved history; attribution of the exact adopted/current-discovery relationship; stale historical `MATCHED` cannot authorize `MANAGED`; newer discovery supersedes old `MATCHED`; one canonical discovery freshness definition; safe serialization of discovery and future `MANAGED` authorization; and no secret material in fingerprints/evidence.
+- Proposed canonical discovery freshness key: `network.discovery_freshness_seconds`, candidate default `86400`. Source verification must confirm that no existing equivalent canonical key exists before implementation finalizes it. Monitoring freshness remains separate (`monitoring.freshness_seconds`); this correction does not solve the monitoring checkpoint/freshness issue.
+- Persist all outcomes (`MATCHED`, `NEW`, `MISSING`, `CHANGED`, `CONFLICT`) without replacing history with `is_reconciled`. Use the actual discovery observation timestamp, not persistence time, after source verification.
+- Serialize discovery persistence, reconciliation persistence, and future Task 3 authorization on a shared lockable boundary, preferably the router row if confirmed compatible with current transactions. A locked evidence row alone must not allow a newer discovery to race past authorization.
+- No `MANAGED` transition, revocation, RouterOS call, Go change, credential handling, billing change, UI change, or hardware acceptance.
+- Commit: `Phase 6I Task 2.5 durable reconciliation evidence`
+
+#### Task 2.6 — Router Identity / Provider Compatibility Evidence (R0)
+
+- Resolve Task 3 precondition 9: RouterOS version must be reported and compatible with the selected provider.
+- Verify actual discovery fields and provider-selection semantics before choosing additional persistence or compatibility fields. Missing or unsupported identity/version evidence fails closed.
+- Keep this local-only and read-only; no RouterOS contact or mutation.
+
+#### Task 2.75 — Durable Operation Reservation and Safety-State Evidence (R0)
+
+- Resolve Task 3 precondition 11: open `UNKNOWN_OUTCOME`, postflight mismatch, and concurrent-operation state must be durable and safely queryable.
+- Task 2 operation-log columns are groundwork only; current source lacks the full lifecycle, reservation, one-active-operation-per-account behavior, and lockable blocking query.
+- Provide this prerequisite portion of the existing Task 4 design before Task 3. Do not silently defer these states or represent them as reconciliation results.
+- No RouterOS writes.
+
 #### Task 3 — ADOPTED → MANAGED and revocation, local-only (R0)
 
 Sources: §8 (the 12 preconditions at lines 204-215, inside a transaction with row locks), §9, §23, §32, §43 lines 651-653, §55.6 item 6.
+
+Task 3 remains blocked until Tasks 2.5, 2.6, and 2.75 are complete and verified. Health evidence already exists in `HealthObservation`; freshness/`ONLINE` evaluation belongs to the later safety gate/Task 3 implementation, not Task 2.5.
 
 - Scope is the immutable three-operation set and no browser field may widen it (§8 line 217). Revocation returns the account to ADOPTED, preserves connection and evidence, appends audit, and makes zero router calls (§9).
 - RED: each of the 12 preconditions denied individually; `ONLINE != MANAGED` both ways (§7 lines 189-190); stale submission after revoke denied; the adopted-resource read-only rule reproduced (§55.6 item 6).
@@ -1346,7 +1375,7 @@ Sources: §43, §44, §49's checklist, §53.
 | 10 | R2 | touches the live hEX | explicit approval plus a designated test account (§47) |
 | 11 | — | verification only | — |
 
-Order is dependency-driven: Tasks 3, 4 and 5 read state introduced by Task 2; Task 6 needs Task 2's gate; Task 7 needs Task 6's contract; Tasks 8-11 follow §54.5 step 4.
+Order is dependency-driven: Task 2.5 supplies durable reconciliation/discovery evidence; Task 2.6 supplies RouterOS identity/provider compatibility semantics; Task 2.75 supplies durable operation reservation and unknown/postflight/concurrent-operation evidence; Task 3 then evaluates the complete local-only transition while holding required locks. Task 4 continues remaining idempotency/concurrency work after its prerequisite portion is split out; Task 5 needs the controlled-operation boundary; Task 6 needs Task 2's gate; Task 7 needs Task 6's contract; Tasks 8-11 follow §54.5 step 4.
 
 ### 58.6 Designation of Task 2
 
@@ -1374,3 +1403,30 @@ Under this decomposition **Task 2 is §54.5 step 1's schema and gate groundwork 
 - Static/build evidence: Pint passed on 10 changed PHP files; `git diff --check` passed; all changed PHP files passed `php -l`; `network-engine` passed `gofmt`, `go build ./...`, `go vet ./...`, and `go test -count=1 ./...`.
 - Bounded secret/reachability review found no added credential values, no changed Laravel raw-command/RouterOS transport surface, no Go source changes, no wire-contract changes, and no router contact. Task 2 remains R0 and is complete at this boundary.
 - Commit boundary: `Phase 6I Task 2 additive management-state schema and deny-by-default gate`.
+
+### 58.9 Task 3 stop correction and prerequisite ordering — 2026-09-19
+
+- Task 3 was attempted from verified HEAD `d40b9be` on branch `phase-6i-controlled-routeros-operations` and correctly STOPPED before modification because durable reconciliation evidence does not exist. No production source was changed.
+- Task 2.5 resolves reconciliation/discovery-evidence prerequisites. Task 2.6 resolves RouterOS identity/provider compatibility semantics. Task 2.75 resolves durable operation reservation / `UNKNOWN_OUTCOME` / postflight-mismatch / concurrent-operation evidence. Task 3 remains blocked until all three prerequisites are complete.
+- Health evidence already exists in persisted `HealthObservation` rows. Its freshness and `ONLINE` evaluation belongs to the later safety gate/Task 3 implementation; Task 2.5 must not absorb the monitoring checkpoint-versus-freshness issue.
+- The proposed Task 2.5 key is `network.discovery_freshness_seconds`, candidate default `86400`. Source verification found no existing equivalent key, so implementation must confirm final configuration name and semantics. `monitoring.freshness_seconds` remains separate.
+- Proposed Task 2.5 schema details, including `matched_discovery_resource_id`, relationship-fingerprint composition, exact inverse relationships, and exact indexes, require implementation-time source verification. Required safety properties are durable attributable evidence, preserved history, stale/newer-discovery invalidation, one canonical freshness definition, safe serialization, and no secret material.
+
+#### Task 3 §8 precondition audit at the corrected dependency boundary
+
+| # | Precondition | Current source of truth | Persisted? | Freshness semantics | Lockable / transaction-safe? | Available at `d40b9be`? | Required prerequisite |
+|---:|---|---|---|---|---|---|---|
+| 1 | Actor has dedicated `manageNetworkAccount` capability | `User::isNetworkOperator()`, Task 2 policies, `config('network.operator_roles')` | Yes | Not applicable | Yes with policy/transaction checks | AVAILABLE NOW | None |
+| 2 | Account, connection, router, resource belong to actor tenant | Tenant foreign keys and IDs | Yes | Not applicable | Yes when rows are locked | AVAILABLE NOW | None |
+| 3 | `CustomerConnection.network_account_id` is this account | `customer_connections.network_account_id` | Yes | Not applicable | Yes with connection lock | AVAILABLE NOW | None |
+| 4 | Account, connection, resource point to same router | Persisted `router_id` values | Yes | Not applicable | Yes with required locks | AVAILABLE NOW | None |
+| 5 | Resource is `ADOPTED` and points to exact connection/account | Resource state and relationship IDs | Yes | Current state checked in transaction | Yes with resource lock | AVAILABLE NOW | None |
+| 6 | Latest successful discovery is fresh | Snapshot `status`/`discovered_at`; adoption uses `last_seen_at` and hardcoded 24 hours | Partially | No canonical Task 3 discovery key or durable applicable evidence | Not safe against concurrent discovery | NOT AVAILABLE | Task 2.5 |
+| 7 | Reconciliation is exactly `MATCHED` | Ephemeral `NetworkReconciliationService::reconcile()` result | No | None | No durable result row | NOT AVAILABLE | Task 2.5 |
+| 8 | Stable external identity exists | Resource `external_ref`, `fingerprint`, normalized data | Partially | No Task 3 identity policy | Lockable, but validation incomplete | PARTIALLY AVAILABLE | Task 3 identity validation |
+| 9 | RouterOS version reported and compatible | Discovery device metadata; no compatibility evaluator | Version may be persisted; compatibility is not | Missing/unsupported semantics undefined | Snapshot lockable, compatibility unproven | NOT AVAILABLE | Task 2.6 |
+| 10 | Latest router health fresh and `ONLINE` | `HealthObservation`, `Router::networkHealth()`, `monitoring.freshness_seconds` | Yes | `observed_at` plus monitoring window | Queryable; evaluation belongs to later gate/Task 3 | PARTIALLY AVAILABLE | Later safety gate / Task 3 |
+| 11 | No open unknown, postflight-mismatch, or concurrent operation | Task 2 fields exist; current service records terminal success/failed only | Partially | No lifecycle/reservation semantics | No safe blocking query/reservation | NOT AVAILABLE | Task 2.75; remaining Task 4 work follows |
+| 12 | Operator confirms immutable three-operation scope | `ControlledNetworkOperationGate::ALLOWED_OPERATIONS`; no transition confirmation | Scope in gate code only | Not applicable | Must be enforced by Task 3 request/transaction | NOT AVAILABLE | Task 3 |
+
+This audit preserves all twelve §8 preconditions. Task 2.5 resolves reconciliation/discovery evidence; Task 2.6 resolves identity/provider compatibility; Task 2.75 resolves operation reservation and safety-state evidence. Task 3 remains `ADOPTED → MANAGED` and `MANAGED → ADOPTED`, local-only, and must not absorb unrelated infrastructure.
