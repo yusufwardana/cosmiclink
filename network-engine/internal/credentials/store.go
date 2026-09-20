@@ -40,17 +40,93 @@ type Store struct {
 	key []byte
 }
 
+const credentialStoreSchemaVersion = 1
+
 var (
-	ErrMasterKeyUnavailable       = errors.New("credential master key unavailable")
-	ErrMasterKeyInvalid           = errors.New("credential master key invalid")
-	ErrCredentialDuplicate        = errors.New("credential already exists")
-	ErrCredentialPayloadInvalid   = errors.New("credential payload invalid")
-	ErrCredentialPersistedInvalid = errors.New("persisted credential record invalid")
-	ErrCredentialScopeMismatch    = errors.New("credential scope mismatch")
-	ErrCredentialNotFound         = errors.New("credential not found")
+	ErrMasterKeyUnavailable              = errors.New("credential master key unavailable")
+	ErrMasterKeyInvalid                  = errors.New("credential master key invalid")
+	ErrCredentialDuplicate               = errors.New("credential already exists")
+	ErrCredentialPayloadInvalid          = errors.New("credential payload invalid")
+	ErrCredentialPersistedInvalid        = errors.New("persisted credential record invalid")
+	ErrCredentialScopeMismatch           = errors.New("credential scope mismatch")
+	ErrCredentialNotFound                = errors.New("credential not found")
+	ErrCredentialStoreNotInitialized     = errors.New("credential store not initialized")
+	ErrCredentialStoreAlreadyInitialized = errors.New("credential store already initialized")
+	ErrCredentialStoreInvalid            = errors.New("credential store invalid")
+	ErrCredentialStoreVersionUnsupported = errors.New("credential store version unsupported")
 )
 
 func OpenStore(path string, provider MasterKeyProvider) (*Store, error) {
+	if err := ensureStorePath(path); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return initializeStoreWithProvider(path, provider)
+	}
+	store, err := openExistingStoreWithProvider(path, provider)
+	if errors.Is(err, ErrCredentialStoreInvalid) || errors.Is(err, ErrCredentialStoreVersionUnsupported) {
+		return nil, errors.New("credential store schema invalid")
+	}
+	return store, err
+}
+
+func InitializeStore(path string, provider MasterKeyProvider) (*Store, error) {
+	if err := ensureStorePath(path); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil, ErrCredentialStoreAlreadyInitialized
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, ErrCredentialStoreInvalid
+	}
+	return initializeStoreWithProvider(path, provider)
+}
+
+func OpenExistingStore(path string, provider MasterKeyProvider) (*Store, error) {
+	if err := ensureStorePath(path); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, ErrCredentialStoreNotInitialized
+	}
+	return openExistingStoreWithProvider(path, provider)
+}
+
+func initializeStoreWithProvider(path string, provider MasterKeyProvider) (*Store, error) {
+	store, err := openDatabase(path, provider)
+	if err != nil {
+		return nil, err
+	}
+	if err := initializeSchema(store.db); err != nil {
+		_ = store.Close()
+		_ = os.Remove(path)
+		return nil, ErrCredentialStoreInvalid
+	}
+	if err := validateSchema(store.db); err != nil {
+		_ = store.Close()
+		_ = os.Remove(path)
+		return nil, ErrCredentialStoreInvalid
+	}
+	_ = os.Chmod(path, 0600)
+	return store, nil
+}
+
+func openExistingStoreWithProvider(path string, provider MasterKeyProvider) (*Store, error) {
+	store, err := openDatabase(path, provider)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSchema(store.db); err != nil {
+		_ = store.Close()
+		if errors.Is(err, ErrCredentialStoreVersionUnsupported) {
+			return nil, err
+		}
+		return nil, ErrCredentialStoreInvalid
+	}
+	return store, nil
+}
+
+func openDatabase(path string, provider MasterKeyProvider) (*Store, error) {
 	if provider == nil {
 		return nil, ErrMasterKeyUnavailable
 	}
@@ -61,7 +137,7 @@ func OpenStore(path string, provider MasterKeyProvider) (*Store, error) {
 	if len(key) != 32 {
 		return nil, ErrMasterKeyInvalid
 	}
-	if path == "" || filepath.Ext(path) == "" {
+	if err := ensureStorePath(path); err != nil {
 		return nil, errors.New("credential store path invalid")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -75,16 +151,14 @@ func OpenStore(path string, provider MasterKeyProvider) (*Store, error) {
 		db.Close()
 		return nil, errors.New("credential store unavailable")
 	}
-	if err := initializeSchema(db); err != nil {
-		db.Close()
-		return nil, errors.New("credential store schema invalid")
-	}
-	if err := validateSchema(db); err != nil {
-		db.Close()
-		return nil, errors.New("credential store schema invalid")
-	}
-	_ = os.Chmod(path, 0600)
 	return &Store{db: db, key: append([]byte(nil), key...)}, nil
+}
+
+func ensureStorePath(path string) error {
+	if path == "" || filepath.Ext(path) == "" {
+		return errors.New("credential store path invalid")
+	}
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -95,6 +169,32 @@ func (s *Store) Close() error {
 		s.key[i] = 0
 	}
 	return s.db.Close()
+}
+
+// NextVersion returns one greater than the maximum historical version for the
+// exact credential scope. Retired and revoked rows remain part of history.
+func (s *Store) NextVersion(ctx context.Context, ref Reference) (int, error) {
+	parsed, err := ParseReference(ref)
+	if err != nil {
+		return 0, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, ErrCredentialStoreInvalid
+	}
+	defer tx.Rollback()
+	var maximum sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM credentials WHERE tenant_ref = ? AND router_ref = ? AND agent_ref = ? AND installation_id = ? AND credential_ref = ? AND purpose = ?`, parsed.TenantRef, parsed.RouterRef, parsed.AgentRef, parsed.InstallationID, parsed.CredentialRef, parsed.Purpose).Scan(&maximum); err != nil {
+		return 0, ErrCredentialStoreInvalid
+	}
+	next := 1
+	if maximum.Valid {
+		next = int(maximum.Int64) + 1
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, ErrCredentialStoreInvalid
+	}
+	return next, nil
 }
 
 func (s *Store) Insert(ctx context.Context, ref Reference, username string, secret []byte) error {
@@ -392,11 +492,23 @@ func initializeSchema(db *sql.DB) error {
 		PRIMARY KEY (credential_ref, version)
 	);
 	CREATE INDEX IF NOT EXISTS credentials_scope_idx ON credentials (tenant_ref, router_ref, agent_ref, installation_id, purpose, version);
+	CREATE TABLE IF NOT EXISTS store_metadata (
+		name TEXT PRIMARY KEY,
+		version INTEGER NOT NULL
+	);
+	INSERT OR IGNORE INTO store_metadata (name, version) VALUES ('cosmiclink.credentials', 1);
 	`)
 	return err
 }
 
 func validateSchema(db *sql.DB) error {
+	var markerVersion int
+	if err := db.QueryRow(`SELECT version FROM store_metadata WHERE name = 'cosmiclink.credentials'`).Scan(&markerVersion); err != nil {
+		return ErrCredentialStoreInvalid
+	}
+	if markerVersion != credentialStoreSchemaVersion {
+		return ErrCredentialStoreVersionUnsupported
+	}
 	rows, err := db.Query(`PRAGMA table_info(credentials)`)
 	if err != nil {
 		return err

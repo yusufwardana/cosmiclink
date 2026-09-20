@@ -131,7 +131,7 @@ func NewProductionCredentialResolver(storePath string, installationID credential
 	if err != nil {
 		return nil, err
 	}
-	store, err := credentials.OpenStore(storePath, provider)
+	store, err := credentials.OpenExistingStore(storePath, provider)
 	if err != nil {
 		return nil, err
 	}
