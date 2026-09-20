@@ -759,6 +759,53 @@ Yes, for those three operations. No password is extracted or required. Creation,
 
 Only `/ppp/secret/set` for `disabled=yes|no` on a preflight-resolved `.id`, and `/ppp/active/remove` for one preflight-resolved active-session `.id`. Required reads are the four hardcoded print commands listed in Section 12. Everything else is forbidden.
 
+## Task 4.2A Implementation Evidence — September 20, 2026
+
+Task 4.2A established the agent-owned credential boundary foundation without
+enabling real credentials, live MikroTik access, or the real mutation provider.
+
+- Added explicit `OBSERVER` and `OPERATOR` credential purposes and opaque,
+  versioned tenant/router/agent credential references in Laravel and Go.
+- Added strict fail-closed validation for empty, unknown, malformed, secret-like,
+  and cross-scope references, with purpose-specific normalized resolver errors.
+- Added a future mutation context/request shape containing only references,
+  purpose/version, target identity, idempotency, and fencing metadata; no
+  password, secret, username, or connection fields are present.
+- Added resolver-aware fake mutation provider construction and verified that fake
+  execution never invokes credential resolution; `routeros` selection remains
+  rejected with `ErrRealMutationProviderUnavailable`.
+- Added a shared silent RouterOS `slog.Handler` and installed it for discovery
+  and monitoring transports so dependency logging cannot emit login/API
+  sentences or credential-bearing records.
+- Preserved legacy observer credential delivery and the existing fake mutation
+  behavior; no migration, live connection, or real write was introduced.
+
+Measured verification on September 20, 2026:
+
+```text
+Laravel: php artisan test
+220 passed, 3 skipped, 1,172 assertions
+
+Go: go test ./...
+All packages passed
+
+Go: go vet ./...
+Passed
+
+PHP syntax checks for all four new Laravel classes
+Passed
+
+git diff --check
+Passed
+
+Sentinel/log search for credential leakage patterns
+No matches
+```
+
+Focused TDD coverage also passed for purpose/reference validation, cross-scope
+rejection, normalized resolver failures, fake-provider independence, future
+mutation field redaction, and silent RouterOS logging.
+
 ### Question 4 — How is Phase 2 billing prevented from automatic real writes?
 
 The current paths are `EnforceBillingCommand -> ProcessOverdueBilling -> SuspendCustomerConnection -> NetworkOperationService::changeStatus` and `RecordPayment -> ReactivateCustomerConnection -> changeStatus`. Phase 6I blocks real controlled calls in billing actions and again in the shared service, with tests proving zero real requests.
@@ -1544,7 +1591,7 @@ This audit preserves all twelve §8 preconditions. Task 2.5 resolves reconciliat
 - Zero-network evidence: no RouterOS connection, RouterOS read/write, configuration change, permission change, credential transmission, Go mutation request, `NetworkDriver` invocation, operation-log creation by lifecycle authorization, or real mutation-provider activation was added. `NETWORK_MUTATIONS_ENABLED` remains false in committed configuration and `NETWORK_MUTATION_PROVIDER` remains fake; real RouterOS mutation remains unreachable.
 - Commit boundary: `Phase 6I Task 3 local managed authorization lifecycle`.
 
-## Task 4.1 Recovery Evidence � 2026-09-20
+## Task 4.1 Recovery Evidence � 2026-09-20
 
 - Recovery classification: B; recovered after the interrupted power-outage worktree without reset, restore, checkout, stash, or wholesale discard.
 - Required base preserved: `e2ddcca43c3766c6cd2acb7d0f0e0d41970eb040` on `phase-6i-controlled-routeros-operations`.

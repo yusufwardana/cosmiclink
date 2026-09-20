@@ -121,6 +121,9 @@ func (t *monitoringTransport) Connect(ctx context.Context, c network.DiscoveryCo
 	} else {
 		t.client, err = routeros.DialContext(ctx, address, c.Username, c.Password)
 	}
+	if err == nil {
+		t.client.SetLogHandler(provider.SilentRouterOSLogHandler())
+	}
 	return err
 }
 func (t *monitoringTransport) Read(ctx context.Context, command string) ([]map[string]string, error) {

@@ -235,6 +235,8 @@ func (t *realRouterOSTransport) Close() error {
 
 type silentRouterOSLogHandler struct{}
 
+func SilentRouterOSLogHandler() slog.Handler { return silentRouterOSLogHandler{} }
+
 func (silentRouterOSLogHandler) Enabled(context.Context, slog.Level) bool  { return false }
 func (silentRouterOSLogHandler) Handle(context.Context, slog.Record) error { return nil }
 func (silentRouterOSLogHandler) WithAttrs([]slog.Attr) slog.Handler {

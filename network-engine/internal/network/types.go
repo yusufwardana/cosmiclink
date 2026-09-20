@@ -3,13 +3,19 @@ package network
 import "context"
 
 type Request struct {
-	OperationID    string         `json:"operation_id"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Operation      string         `json:"operation"`
-	TenantRef      string         `json:"tenant_ref"`
-	RouterRef      string         `json:"router_ref"`
-	AccountRef     string         `json:"account_ref,omitempty"`
-	Parameters     map[string]any `json:"parameters"`
+	OperationID       string         `json:"operation_id"`
+	IdempotencyKey    string         `json:"idempotency_key"`
+	Operation         string         `json:"operation"`
+	TenantRef         string         `json:"tenant_ref"`
+	RouterRef         string         `json:"router_ref"`
+	AgentRef          string         `json:"agent_ref,omitempty"`
+	CredentialRef     string         `json:"credential_ref,omitempty"`
+	CredentialPurpose string         `json:"credential_purpose,omitempty"`
+	CredentialVersion int            `json:"credential_version,omitempty"`
+	TargetIdentityRef string         `json:"target_identity_ref,omitempty"`
+	FencingRef        string         `json:"fencing_ref,omitempty"`
+	AccountRef        string         `json:"account_ref,omitempty"`
+	Parameters        map[string]any `json:"parameters"`
 }
 
 type Result struct {

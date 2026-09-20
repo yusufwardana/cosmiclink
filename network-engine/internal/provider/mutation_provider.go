@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"cosmiclink/network-engine/internal/credentials"
 	"cosmiclink/network-engine/internal/network"
 )
 
@@ -45,8 +46,19 @@ func SupportedMutationProviders() []string {
 // mutations. The fake selection returns the shared simulation; the routeros
 // selection is refused until Task 4 registers a safe, auditable real provider.
 func NewMutationProvider(selection string) (network.MutationProvider, error) {
+	return NewMutationProviderWithResolver(selection, nil)
+}
+
+func NewMutationProviderWithResolver(selection string, resolver credentials.Resolver) (network.MutationProvider, error) {
 	switch selection {
 	case MutationProviderFake:
+		if resolver != nil {
+			// Resolver-aware construction is intentionally isolated from the
+			// process-wide simulation. Fake execution must not resolve or retain
+			// credential state, and tests/compositions must not cross-contaminate
+			// the shared mutation counter.
+			return NewFakeProvider(), nil
+		}
 		return GlobalFakeProvider(), nil
 	case MutationProviderRouterOS:
 		return nil, fmt.Errorf("%w: %s", ErrRealMutationProviderUnavailable, "no allowlisted RouterOS write provider is registered in this build")
