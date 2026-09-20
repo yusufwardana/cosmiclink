@@ -27,7 +27,7 @@ func TestAgentPerformsOutboundFakeDiscoveryWithoutLoggingSecrets(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/agent/heartbeat":
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
 		case "/api/v1/agent/jobs/claim":
 			_, _ = w.Write([]byte(`{"job":{"id":1,"type":"DISCOVER_ROUTER","router_ref":"router-1","attempt":1,"fence":"test-fence","renewal_seconds":30}}`))
 		case "/api/v1/agent/jobs/1/result":
@@ -47,6 +47,34 @@ func TestAgentPerformsOutboundFakeDiscoveryWithoutLoggingSecrets(t *testing.T) {
 	}
 	if len(requests) != 3 {
 		t.Fatalf("requests = %v", requests)
+	}
+}
+
+func TestAgentHeartbeatPersistsAndReloadsAuthoritativeIdentity(t *testing.T) {
+	dataDir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agent/heartbeat":
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
+		case "/api/v1/agent/jobs/claim":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	config := Config{CoreURL: server.URL, Token: "agent-token", DataDir: dataDir, Timeout: time.Second}
+	first := New(config, provider.NewFakeDiscoveryProvider(), nil)
+	if err := first.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	second := New(config, provider.NewFakeDiscoveryProvider(), nil)
+	if err := second.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if second.bootstrap.AgentRef() != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("reloaded agent_ref = %q", second.bootstrap.AgentRef())
 	}
 }
 
@@ -72,6 +100,7 @@ func TestLeaseRenewalMetadataAndFencing(t *testing.T) {
 			if data["version"] != "0.6.0" || data["go_runtime"] == nil || data["uptime_seconds"] == nil {
 				t.Error("missing bounded metadata")
 			}
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
 		case "/api/v1/agent/jobs/claim":
 			_, _ = w.Write([]byte(`{"job":{"id":1,"type":"DISCOVER_ROUTER","router_ref":"test","attempt":2,"fence":"current","renewal_seconds":1}}`))
 		case "/api/v1/agent/jobs/1/renew", "/api/v1/agent/jobs/1/result":
@@ -101,6 +130,8 @@ func TestLostLeaseCancelsWithoutResult(t *testing.T) {
 	var submitted atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case strings.HasSuffix(r.URL.Path, "heartbeat"):
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
 		case strings.HasSuffix(r.URL.Path, "claim"):
 			_, _ = w.Write([]byte(`{"job":{"id":1,"type":"DISCOVER_ROUTER","attempt":1,"fence":"old","renewal_seconds":1}}`))
 		case strings.HasSuffix(r.URL.Path, "renew"):
@@ -171,6 +202,7 @@ func TestTransientFailuresResetAfterSuccessfulCommunication(t *testing.T) {
 			w.WriteHeader(503)
 		} else if n == 3 {
 			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
 		} else if n == 4 {
 			w.WriteHeader(204)
 		} else {

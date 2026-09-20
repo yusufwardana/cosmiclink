@@ -16,8 +16,9 @@ import (
 
 func main() {
 	coreURL, token := os.Getenv("COSMICLINK_CORE_URL"), os.Getenv("COSMICLINK_AGENT_TOKEN")
-	if coreURL == "" || token == "" {
-		slog.Error("COSMICLINK_CORE_URL and COSMICLINK_AGENT_TOKEN are required")
+	dataDir := os.Getenv("COSMICLINK_AGENT_DATA_DIR")
+	if coreURL == "" || token == "" || dataDir == "" {
+		slog.Error("COSMICLINK_CORE_URL, COSMICLINK_AGENT_TOKEN, and COSMICLINK_AGENT_DATA_DIR are required")
 		os.Exit(1)
 	}
 	u, parseErr := url.Parse(coreURL)
@@ -31,7 +32,7 @@ func main() {
 		slog.Error("agent provider configuration failed", "error", err)
 		os.Exit(1)
 	}
-	a := agent.New(agent.Config{CoreURL: coreURL, Token: token, Name: value("COSMICLINK_AGENT_NAME", "network-agent"), Timeout: 10 * time.Second, PollInterval: seconds("COSMICLINK_AGENT_POLL_INTERVAL", 5), HeartbeatInterval: seconds("NETWORK_AGENT_HEARTBEAT_SECONDS", 30), MaxBackoff: seconds("COSMICLINK_AGENT_MAX_BACKOFF_SECONDS", 60)}, p, slog.Default())
+	a := agent.New(agent.Config{CoreURL: coreURL, Token: token, Name: value("COSMICLINK_AGENT_NAME", "network-agent"), DataDir: dataDir, Timeout: 10 * time.Second, PollInterval: seconds("COSMICLINK_AGENT_POLL_INTERVAL", 5), HeartbeatInterval: seconds("NETWORK_AGENT_HEARTBEAT_SECONDS", 30), MaxBackoff: seconds("COSMICLINK_AGENT_MAX_BACKOFF_SECONDS", 60)}, p, slog.Default())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := a.Run(ctx); err != nil && ctx.Err() == nil {

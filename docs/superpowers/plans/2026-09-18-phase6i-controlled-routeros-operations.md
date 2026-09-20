@@ -806,6 +806,59 @@ Focused TDD coverage also passed for purpose/reference validation, cross-scope
 rejection, normalized resolver failures, fake-provider independence, future
 mutation field redaction, and silent RouterOS logging.
 
+## Task 5A.0 Implementation Evidence — September 20, 2026
+
+Task 5A.0 established the minimum authenticated Core-to-Agent bootstrap handoff
+for the authoritative logical Agent identity. Laravel remains authoritative:
+`NetworkAgent.identifier` is returned by the existing authenticated
+`POST /api/v1/agent/heartbeat` response and is consumed by the Go Agent; no
+second identity column or bootstrap endpoint was added.
+
+- Bootstrap transport: the existing bearer-authenticated Agent heartbeat.
+- Local bootstrap artifact: configurable Agent data directory containing
+  `agent-bootstrap.json`; it stores only `format_version`, `agent_ref`, and
+  `bound_at`.
+- First binding: a valid authenticated Core identifier is atomically persisted
+  with restrictive best-effort permissions after strict response validation.
+- Restart/idempotence: the same authenticated identifier is accepted; a
+  different identifier fails closed with normalized mismatch behavior and does
+  not overwrite local state.
+- Reinstall/copied-directory behavior: a fresh data directory can bind on the
+  first valid authenticated heartbeat; a copied artifact attached to a
+  different Core Agent fails closed.
+- Strict decoding: heartbeat and local bootstrap JSON reject unknown fields,
+  malformed/truncated data, trailing data, and unsupported format versions.
+- Token/identity separation: the bearer token authenticates the request but is
+  never used as `agent_ref`, persisted, logged, or included in bootstrap state.
+  `COSMICLINK_AGENT_NAME` is not used as identity.
+- No `installation_id` was generated; installation lifecycle, key/store
+  initialization, credentials, IPC, and service installation remain Task 5A
+  scope or later.
+- No RouterOS/MikroTik access, discovery transport, mutation provider, or real
+  network write was introduced.
+
+Measured verification on September 20, 2026:
+
+```text
+Focused Go bootstrap/heartbeat tests: passed
+Go: gofmt: passed
+Go: go build ./...: passed
+Go: go vet ./...: passed
+Go: go test ./...: passed
+Go: go mod verify: all modules verified
+Go: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...: passed
+Go: go test -race ./...: unavailable; CGO requires gcc, which is not installed
+Laravel focused Agent/credential/Phase 6I tests: 104 passed, 628 assertions
+Laravel: php artisan test: passed
+Pint: passed
+PHP syntax checks: passed
+git diff --check: passed
+```
+
+No Laravel schema change was made. `installation_id`, master-key state,
+credential-store state, credential enrollment, IPC, RouterOS access, and real
+mutation behavior remain untouched.
+
 ### Question 4 — How is Phase 2 billing prevented from automatic real writes?
 
 The current paths are `EnforceBillingCommand -> ProcessOverdueBilling -> SuspendCustomerConnection -> NetworkOperationService::changeStatus` and `RecordPayment -> ReactivateCustomerConnection -> changeStatus`. Phase 6I blocks real controlled calls in billing actions and again in the shared service, with tests proving zero real requests.

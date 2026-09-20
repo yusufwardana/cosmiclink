@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ const discoverRouter = "DISCOVER_ROUTER"
 
 type Config struct {
 	CoreURL, Token, Name                        string
+	DataDir                                     string
 	Timeout                                     time.Duration
 	PollInterval, HeartbeatInterval, MaxBackoff time.Duration
 }
@@ -40,6 +42,8 @@ type claimResponse struct {
 
 type Agent struct {
 	config             Config
+	bootstrap          *BootstrapState
+	bootstrapErr       error
 	provider           network.DiscoveryProvider
 	credentialResolver *AgentCredentialResolver
 	client             *http.Client
@@ -77,7 +81,14 @@ func newAgent(config Config, provider network.DiscoveryProvider, resolver *Agent
 	if config.MaxBackoff <= 0 {
 		config.MaxBackoff = time.Minute
 	}
-	return &Agent{config: config, provider: provider, credentialResolver: resolver, client: &http.Client{Timeout: config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, logger: logger, started: time.Now()}
+	var bootstrap *BootstrapState
+	var bootstrapErr error
+	if config.DataDir != "" {
+		bootstrap, bootstrapErr = NewBootstrapState(strings.TrimRight(config.DataDir, `/\\`) + string(os.PathSeparator) + "agent-bootstrap.json")
+	} else {
+		bootstrap, bootstrapErr = NewBootstrapState("")
+	}
+	return &Agent{config: config, bootstrap: bootstrap, bootstrapErr: bootstrapErr, provider: provider, credentialResolver: resolver, client: &http.Client{Timeout: config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, logger: logger, started: time.Now()}
 }
 
 // ResolveCredential consumes a reference-only credential job through the
@@ -95,7 +106,18 @@ func (a *Agent) ResolveCredential(ctx context.Context, job CredentialResolutionJ
 }
 
 func (a *Agent) heartbeat(ctx context.Context) error {
-	err := a.request(ctx, "/api/v1/agent/heartbeat", map[string]any{"version": "0.6.0", "capabilities": []string{"discovery.routeros.readonly", "jobs.lease.v1"}, "go_runtime": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "uptime_seconds": int64(time.Since(a.started).Seconds())}, nil)
+	if a.bootstrapErr != nil {
+		return a.bootstrapErr
+	}
+	var response heartbeatResponse
+	err := a.requestStrict(ctx, "/api/v1/agent/heartbeat", map[string]any{"version": "0.6.0", "capabilities": []string{"discovery.routeros.readonly", "jobs.lease.v1"}, "go_runtime": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "uptime_seconds": int64(time.Since(a.started).Seconds())}, &response)
+	if err == nil {
+		encoded, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			return ErrAgentBootstrapInvalid
+		}
+		err = a.bootstrap.Bind(ctx, encoded)
+	}
 	if err == nil {
 		a.lastHeartbeat = time.Now()
 	}
@@ -244,7 +266,20 @@ func (a *Agent) request(ctx context.Context, path string, input, output any) err
 	_, err := a.requestStatus(ctx, path, input, output)
 	return err
 }
+
+func (a *Agent) requestStrict(ctx context.Context, path string, input, output any) error {
+	_, err := a.requestStatusStrict(ctx, path, input, output)
+	return err
+}
 func (a *Agent) requestStatus(ctx context.Context, path string, input, output any) (int, error) {
+	return a.requestStatusWithDecoder(ctx, path, input, output, false)
+}
+
+func (a *Agent) requestStatusStrict(ctx context.Context, path string, input, output any) (int, error) {
+	return a.requestStatusWithDecoder(ctx, path, input, output, true)
+}
+
+func (a *Agent) requestStatusWithDecoder(ctx context.Context, path string, input, output any, strict bool) (int, error) {
 	body, err := json.Marshal(input)
 	if err != nil {
 		return 0, err
@@ -271,8 +306,21 @@ func (a *Agent) requestStatus(ctx context.Context, path string, input, output an
 		return resp.StatusCode, fmt.Errorf("core request failed with status %d", resp.StatusCode)
 	}
 	if output != nil {
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1048576)).Decode(output); err != nil {
+		decoder := json.NewDecoder(io.LimitReader(resp.Body, 1048576))
+		if strict {
+			decoder.DisallowUnknownFields()
+		}
+		if err := decoder.Decode(output); err != nil {
+			if strict {
+				return resp.StatusCode, ErrAgentBootstrapInvalid
+			}
 			return resp.StatusCode, err
+		}
+		if strict {
+			var extra any
+			if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+				return resp.StatusCode, ErrAgentBootstrapInvalid
+			}
 		}
 	}
 	return resp.StatusCode, nil
