@@ -10,7 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"cosmiclink/network-engine/internal/admin"
+	"cosmiclink/network-engine/internal/adminprotocol"
 	"cosmiclink/network-engine/internal/agent"
+	"cosmiclink/network-engine/internal/ipc"
 	"cosmiclink/network-engine/internal/provider"
 )
 
@@ -35,6 +38,25 @@ func main() {
 	a := agent.New(agent.Config{CoreURL: coreURL, Token: token, Name: value("COSMICLINK_AGENT_NAME", "network-agent"), DataDir: dataDir, Timeout: 10 * time.Second, PollInterval: seconds("COSMICLINK_AGENT_POLL_INTERVAL", 5), HeartbeatInterval: seconds("NETWORK_AGENT_HEARTBEAT_SECONDS", 30), MaxBackoff: seconds("COSMICLINK_AGENT_MAX_BACKOFF_SECONDS", 60)}, p, slog.Default())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	service := admin.NewService(dataDir, value("COSMICLINK_AGENT_ACTOR", "windows-administrator"))
+	pipe, err := ipc.NewRequestServer(admin.PipeName, func(encoded []byte) ([]byte, error) {
+		request, decodeErr := adminprotocol.DecodeRequest(encoded)
+		if decodeErr != nil {
+			return adminprotocol.EncodeResponse(nil, decodeErr)
+		}
+		result, handleErr := service.Handle(ctx, request)
+		return adminprotocol.EncodeResponse(result, handleErr)
+	})
+	if err != nil {
+		slog.Error("agent admin IPC unavailable", "code", "AGENT_IPC_UNAVAILABLE")
+		os.Exit(1)
+	}
+	go func() {
+		if serveErr := pipe.Serve(ctx); serveErr != nil && ctx.Err() == nil {
+			slog.Error("agent admin IPC stopped", "code", "AGENT_IPC_UNAVAILABLE")
+		}
+	}()
+	defer pipe.Close()
 	if err := a.Run(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("agent stopped", "code", "AGENT_AUTH_FAILED")
 		os.Exit(1)

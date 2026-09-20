@@ -300,6 +300,24 @@ func (s *Store) ListMetadata(ctx context.Context) ([]CredentialMetadata, error) 
 	return metadata, nil
 }
 
+// MarkValidated records local-only validation evidence without returning or
+// persisting decrypted credential material.
+func (s *Store) MarkValidated(ctx context.Context, ref Reference) error {
+	parsed, err := ParseReference(ref)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE credentials SET last_validated_at = ? WHERE credential_ref = ? AND version = ? AND tenant_ref = ? AND router_ref = ? AND agent_ref = ? AND installation_id = ? AND purpose = ? AND status = 'ACTIVE'`, time.Now().UTC().Format(time.RFC3339Nano), parsed.CredentialRef, parsed.Version, parsed.TenantRef, parsed.RouterRef, parsed.AgentRef, parsed.InstallationID, parsed.Purpose)
+	if err != nil {
+		return errors.New("credential validation update failed")
+	}
+	count, _ := result.RowsAffected()
+	if count != 1 {
+		return ErrCredentialNotFound
+	}
+	return nil
+}
+
 func parseStoreTime(value string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05"} {
 		if parsed, err := time.Parse(layout, value); err == nil {

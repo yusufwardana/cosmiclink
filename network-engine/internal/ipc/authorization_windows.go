@@ -3,6 +3,7 @@
 package ipc
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -212,4 +213,108 @@ func (s *AuthorizationServer) rejectMalformedForTest(request []byte) error {
 		return ErrMalformedRequest
 	}
 	return nil
+}
+
+type RequestHandler func([]byte) ([]byte, error)
+
+type RequestServer struct {
+	name    string
+	handler RequestHandler
+	closed  atomic.Bool
+}
+
+func NewRequestServer(name string, handler RequestHandler) (*RequestServer, error) {
+	if handler == nil {
+		return nil, ErrIPCUnavailable
+	}
+	return &RequestServer{name: name, handler: handler}, nil
+}
+
+func (s *RequestServer) Close() {
+	if s != nil {
+		s.closed.Store(true)
+	}
+}
+
+func (s *RequestServer) Serve(ctx context.Context) error {
+	for !s.closed.Load() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		auth, err := NewAuthorizationServer(s.name)
+		if err != nil {
+			return ErrIPCUnavailable
+		}
+		err = auth.serveRequest(s.handler)
+		_ = auth.Close()
+		if err != nil && !errors.Is(err, ErrIPCConnectionFailed) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *AuthorizationServer) serveRequest(handler RequestHandler) error {
+	if s == nil || handler == nil {
+		return ErrIPCUnavailable
+	}
+	if err := windows.ConnectNamedPipe(s.pipe, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
+		return ErrIPCConnectionFailed
+	}
+	file := os.NewFile(uintptr(s.pipe), "cosmiclink-agent-admin")
+	if file == nil {
+		return ErrIPCConnectionFailed
+	}
+	defer file.Close()
+	if err := s.authorizeCurrentClient(file); err != nil {
+		return err
+	}
+	request := make([]byte, 1024*1024)
+	n, err := file.Read(request)
+	if err != nil || n == 0 {
+		return ErrMalformedRequest
+	}
+	response, handlerErr := handler(request[:n])
+	if handlerErr != nil && len(response) == 0 {
+		return handlerErr
+	}
+	_, err = file.Write(response)
+	if err != nil {
+		return ErrIPCConnectionFailed
+	}
+	return nil
+}
+
+func Request(name string, payload []byte) ([]byte, error) {
+	name16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return nil, ErrIPCConnectionFailed
+	}
+	var pipe windows.Handle
+	for attempt := 0; attempt < 500; attempt++ {
+		pipe, err = windows.CreateFile(name16, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, 0, 0)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		return nil, ErrIPCConnectionFailed
+	}
+	file := os.NewFile(uintptr(pipe), "cosmiclink-agent-admin-client")
+	if file == nil {
+		_ = windows.CloseHandle(pipe)
+		return nil, ErrIPCConnectionFailed
+	}
+	defer file.Close()
+	if _, err := file.Write(payload); err != nil {
+		return nil, ErrIPCConnectionFailed
+	}
+	response, err := io.ReadAll(io.LimitReader(file, 1024*1024))
+	if err != nil {
+		return nil, ErrIPCConnectionFailed
+	}
+	return response, nil
 }

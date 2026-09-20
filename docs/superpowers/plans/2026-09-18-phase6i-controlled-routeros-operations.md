@@ -916,6 +916,101 @@ SOURCE IMPLEMENTATION CHANGES: 0
 
 Only this planning document may be added.
 
+## 55. Phase 6I Agent Admin Foundation Completion Evidence (2026-09-20)
+
+The previously blocked Agent Admin Foundation milestone was implemented from
+required commit `4058817277d543c759fad4adc646e46a60f41d04` on branch
+`phase-6i-controlled-routeros-operations`. The verified Windows named-pipe
+authorization primitive was preserved; no IPC redesign, TCP fallback, shared
+secret, or RouterOS access was introduced.
+
+### Production IPC and security boundary
+
+- Production pipe name: `\\.\pipe\cosmiclink-agent-admin`.
+- The existing ACL remains `D:P(A;;GA;;;SY)(A;;GA;;;BA)` for SYSTEM and
+  Built-in Administrators only.
+- The production request server authenticates the actual named-pipe caller
+  before decoding or dispatching the typed request. It retains impersonation,
+  `OpenThreadToken`, Administrators SID membership validation,
+  `runtime.LockOSThread`, and deferred `RevertToSelf` cleanup.
+- Linux remains explicitly fail-closed with `IPC_UNAVAILABLE`; no network
+  fallback exists.
+- The Agent service owns installation validation, DPAPI master-key access,
+  credential-store access, encryption/decryption, lifecycle mutation, and
+  local audit writing. The CLI is a named-pipe client only.
+
+### Typed protocol and service operations
+
+- Protocol version is `1`; JSON decoding rejects unknown fields and trailing
+  data, and rejects unsupported versions and unknown operations.
+- Implemented operations are exactly:
+  `CREDENTIAL_STORE_INIT`, `CREDENTIAL_LIST`, `CREDENTIAL_INSPECT`,
+  `CREDENTIAL_ADD_OBSERVER`, `CREDENTIAL_TEST_LOCAL`,
+  `CREDENTIAL_ROTATE_OBSERVER`, `CREDENTIAL_REVOKE`, and
+  `CREDENTIAL_RETIRE`.
+- No `CREDENTIAL_ADD_OPERATOR` operation exists. Crafted `purpose=OPERATOR`
+  fields are rejected by strict decoding; enrollment purpose is server-fixed
+  to `OBSERVER`.
+- Store initialization is explicit, installation-scoped, refuses repeats, and
+  does not regenerate installation identity, agent reference, or master key.
+- Observer references and version numbers are server-derived. UUIDv4 references
+  are generated server-side and historical version allocation uses the durable
+  store's maximum historical version, preserving holes and monotonicity.
+- Rotation, revoke, and retire are service-serialized and use the existing
+  transactional store operations. Revoke and retire require exact confirmation
+  at the service boundary, not only in the CLI.
+
+### CLI and secret behavior
+
+- Added `cosmiclink-agent credential init|list|inspect|add|test|rotate|revoke|retire`.
+- The CLI contains no production store or master-key construction and does not
+  open `credentials.db` or `master-key.protected`.
+- Enrollment and rotation require a Windows interactive console and hidden
+  password plus confirmation input. `--password`, `--secret`, positional
+  secrets, environment secrets, config-file secrets, and redirected input are
+  rejected or unused.
+- No show-secret operation exists. List, inspect, validation, rotation, and
+  lifecycle responses contain metadata/status only. Local validation explicitly
+  returns `hardware_access=not_performed`; it opens no RouterOS or network
+  socket.
+
+### Audit and leakage evidence
+
+- Added a small append-only, mode `0600`, metadata-only local audit file under
+  the Agent data directory.
+- Recorded event families include store initialization, creation, local
+  validation, rotation, revoke, retire, and confirmation denial. Safe fields
+  include event ID, timestamp, actor reference, operation, credential reference,
+  purpose, version, tenant/router references, result, reason, and correlation ID.
+- Secret-bearing values, encrypted payloads, nonces, master-key material, DPAPI
+  blobs, and Agent tokens are not projected into responses or audit events.
+- Focused service tests passed for observer lifecycle redaction, local
+  validation, confirmation enforcement, and crafted operator denial. Existing
+  encrypted-store, resolver, DPAPI, and IPC tests remained green.
+
+### Verification evidence
+
+```text
+Starting HEAD: 4058817277d543c759fad4adc646e46a60f41d04
+Branch: phase-6i-controlled-routeros-operations
+Focused Go tests: passed
+Go test ./...: passed
+Go build ./...: passed
+Go vet ./...: passed
+Go mod verify: passed
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...: passed
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...: passed
+Laravel php artisan test: passed
+Pint --test: passed
+PHP syntax checks: passed
+git diff --check: passed
+go test -race ./...: unavailable; CGO/GCC is not installed in this environment
+```
+
+Laravel source and schema were unchanged. No Core credential synchronization,
+legacy observer migration, OPERATOR enrollment, RouterOS connection, RouterOS
+write, mutation-provider access, or hardware validation was performed.
+
 ## 54. Baseline Verification Addendum (read-only)
 
 Every assumption this plan makes about existing code was re-read from disk in this session rather than carried over from earlier notes. Method: `git status`/`git log` inspection plus full reads of the Laravel network and monitoring service layer, models, policies, controllers, config, migrations, and test harness, and of the Go engine (`cmd`, `internal/api`, `internal/config`, `internal/network`, `internal/provider`, `internal/monitoring`). No production file was created, edited, deleted, or executed against hardware; `git status --porcelain` still lists only this planning document.
