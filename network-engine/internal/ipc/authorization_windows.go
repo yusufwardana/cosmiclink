@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	pingRequest = "PING"
-	pipeSDDL    = "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+	pingRequest         = "PING"
+	pipeSDDL            = "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+	maxRequestFrameSize = 1024 * 1024
 )
 
 var (
@@ -33,7 +34,15 @@ var (
 	ErrAuthorizationClientUnavailable = errors.New("IPC_AUTHORIZATION_CLIENT_UNAVAILABLE")
 )
 
-var impersonateNamedPipeClient = windows.NewLazySystemDLL("advapi32.dll").NewProc("ImpersonateNamedPipeClient")
+var (
+	impersonateNamedPipeClient = windows.NewLazySystemDLL("advapi32.dll").NewProc("ImpersonateNamedPipeClient")
+	readRequestFrameCall       = readRequestFrame
+	impersonatePipeClientCall  = impersonatePipeClient
+	openThreadTokenCall        = windows.OpenThreadToken
+	tokenIsMemberCall          = func(token windows.Token, sid *windows.SID) (bool, error) { return token.IsMember(sid) }
+	closeTokenCall             = func(token windows.Token) error { return token.Close() }
+	revertToSelfCall           = windows.RevertToSelf
+)
 
 type AuthorizationServer struct {
 	name                   string
@@ -86,7 +95,21 @@ func (s *AuthorizationServer) Close() error {
 	if s == nil || s.closed.Swap(true) {
 		return nil
 	}
+	if s.pipe == windows.InvalidHandle {
+		return nil
+	}
 	return windows.CloseHandle(s.pipe)
+}
+
+func (s *AuthorizationServer) takePipeFile(name string) *os.File {
+	if s == nil || s.pipe == windows.InvalidHandle {
+		return nil
+	}
+	file := os.NewFile(uintptr(s.pipe), name)
+	if file != nil {
+		s.pipe = windows.InvalidHandle
+	}
+	return file
 }
 
 func (s *AuthorizationServer) ServeOnce() string {
@@ -96,7 +119,7 @@ func (s *AuthorizationServer) ServeOnce() string {
 	if err := windows.ConnectNamedPipe(s.pipe, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
 		return "DENIED"
 	}
-	file := os.NewFile(uintptr(s.pipe), "cosmiclink-auth-spike")
+	file := s.takePipeFile("cosmiclink-auth-spike")
 	if file == nil {
 		return "DENIED"
 	}
@@ -155,28 +178,25 @@ func (s *AuthorizationServer) authorizeCurrentClient(client *os.File) (err error
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if err := impersonatePipeClient(windows.Handle(client.Fd())); err != nil {
+	if err := impersonatePipeClientCall(windows.Handle(client.Fd())); err != nil {
 		return ErrImpersonationFailed
 	}
-	revertAttempted := false
 	defer func() {
-		revertAttempted = true
-		if revertErr := windows.RevertToSelf(); revertErr != nil && err == nil {
+		if revertErr := revertToSelfCall(); revertErr != nil && err == nil {
 			err = ErrRevertFailed
 		}
-		_ = revertAttempted
 	}()
 
 	var token windows.Token
-	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &token); err != nil {
+	if err := openThreadTokenCall(windows.CurrentThread(), windows.TOKEN_QUERY, true, &token); err != nil {
 		return ErrCallerTokenFailed
 	}
-	defer token.Close()
+	defer func() { _ = closeTokenCall(token) }()
 	adminSID, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
 		return ErrAuthorizationFailed
 	}
-	isMember, err := token.IsMember(adminSID)
+	isMember, err := tokenIsMemberCall(token, adminSID)
 	if err != nil {
 		return ErrAuthorizationFailed
 	}
@@ -249,7 +269,7 @@ func (s *RequestServer) Serve(ctx context.Context) error {
 		}
 		err = auth.serveRequest(s.handler)
 		_ = auth.Close()
-		if err != nil && !errors.Is(err, ErrIPCConnectionFailed) {
+		if errors.Is(err, ErrRevertFailed) {
 			return err
 		}
 	}
@@ -263,20 +283,19 @@ func (s *AuthorizationServer) serveRequest(handler RequestHandler) error {
 	if err := windows.ConnectNamedPipe(s.pipe, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
 		return ErrIPCConnectionFailed
 	}
-	file := os.NewFile(uintptr(s.pipe), "cosmiclink-agent-admin")
+	file := s.takePipeFile("cosmiclink-agent-admin")
 	if file == nil {
 		return ErrIPCConnectionFailed
 	}
 	defer file.Close()
+	request, err := readRequestFrameCall(file)
+	if err != nil {
+		return err
+	}
 	if err := s.authorizeCurrentClient(file); err != nil {
 		return err
 	}
-	request := make([]byte, 1024*1024)
-	n, err := file.Read(request)
-	if err != nil || n == 0 {
-		return ErrMalformedRequest
-	}
-	response, handlerErr := handler(request[:n])
+	response, handlerErr := handler(request)
 	if handlerErr != nil && len(response) == 0 {
 		return handlerErr
 	}
@@ -285,6 +304,18 @@ func (s *AuthorizationServer) serveRequest(handler RequestHandler) error {
 		return ErrIPCConnectionFailed
 	}
 	return nil
+}
+
+func readRequestFrame(file *os.File) ([]byte, error) {
+	if file == nil {
+		return nil, ErrMalformedRequest
+	}
+	request := make([]byte, maxRequestFrameSize+1)
+	n, err := file.Read(request)
+	if err != nil || n == 0 || n > maxRequestFrameSize {
+		return nil, ErrMalformedRequest
+	}
+	return request[:n], nil
 }
 
 func Request(name string, payload []byte) ([]byte, error) {
