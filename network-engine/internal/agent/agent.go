@@ -82,6 +82,11 @@ type Agent struct {
 
 var ErrAuthentication = errors.New("agent authentication rejected")
 
+var (
+	ErrAgentProvisioningFailed     = errors.New("agent provisioning failed")
+	ErrAgentProvisioningIncomplete = errors.New("agent provisioning state incomplete")
+)
+
 func New(config Config, provider network.DiscoveryProvider, logger *slog.Logger) *Agent {
 	return newAgent(config, provider, nil, logger)
 }
@@ -164,16 +169,22 @@ func (a *Agent) SyncObserverMetadata(ctx context.Context, metadata credentials.C
 
 func (a *Agent) heartbeat(ctx context.Context) error {
 	if a.bootstrapErr != nil {
-		return a.bootstrapErr
+		return provisioningError(a.bootstrapErr)
 	}
 	var response heartbeatResponse
-	err := a.requestStrict(ctx, "/api/v1/agent/heartbeat", map[string]any{"version": "0.6.0", "capabilities": []string{"discovery.routeros.readonly", "jobs.lease.v1"}, "go_runtime": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "uptime_seconds": int64(time.Since(a.started).Seconds())}, &response)
+	status, err := a.requestStatusStrict(ctx, "/api/v1/agent/heartbeat", map[string]any{"version": "0.6.0", "capabilities": []string{"discovery.routeros.readonly", "jobs.lease.v1"}, "go_runtime": runtime.Version(), "os": runtime.GOOS, "architecture": runtime.GOARCH, "uptime_seconds": int64(time.Since(a.started).Seconds())}, &response)
+	if status == http.StatusNotFound {
+		return ErrAuthentication
+	}
 	if err == nil {
 		encoded, marshalErr := json.Marshal(response)
 		if marshalErr != nil {
 			return ErrAgentBootstrapInvalid
 		}
 		err = a.bootstrap.Bind(ctx, encoded)
+		if err == nil && a.config.DataDir != "" {
+			err = provisionLocalInstallation(ctx, a.config.DataDir)
+		}
 	}
 	if err == nil {
 		a.lastHeartbeat = time.Now()
@@ -203,6 +214,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if errors.Is(err, ErrAuthentication) {
+			return err
+		}
+		if errors.Is(err, ErrAgentProvisioningFailed) {
 			return err
 		}
 		var delay time.Duration

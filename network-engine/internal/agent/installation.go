@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -77,6 +78,74 @@ func validInstallationID(value string) bool { return installationIDPattern.Match
 
 func installationPaths(dataDir string) (bootstrap, installation, key, store string) {
 	return filepath.Join(dataDir, "agent-bootstrap.json"), filepath.Join(dataDir, "installation.json"), filepath.Join(dataDir, "master-key.protected"), filepath.Join(dataDir, "credentials.db")
+}
+
+// provisionLocalInstallation completes the local production provisioning
+// boundary only after authenticated bootstrap has persisted Core's authoritative
+// Agent reference. It initializes an entirely fresh state or validates an
+// entirely existing state; partial and corrupt state always fail closed.
+func provisionLocalInstallation(ctx context.Context, dataDir string) error {
+	_, installationPath, keyPath, storePath := installationPaths(dataDir)
+	installationExists, err := regularFileExists(installationPath)
+	if err != nil {
+		return provisioningError(err)
+	}
+	keyExists, err := regularFileExists(keyPath)
+	if err != nil {
+		return provisioningError(err)
+	}
+	storeExists, err := regularFileExists(storePath)
+	if err != nil {
+		return provisioningError(err)
+	}
+
+	if !installationExists && !keyExists && !storeExists {
+		if _, err := InitializeInstallation(ctx, dataDir); err != nil {
+			return provisioningError(err)
+		}
+		store, err := InitializeCredentialStore(ctx, dataDir)
+		if err != nil {
+			return provisioningError(err)
+		}
+		if err := store.Close(); err != nil {
+			return provisioningError(err)
+		}
+	} else if !installationExists || !keyExists || !storeExists {
+		return provisioningError(ErrAgentProvisioningIncomplete)
+	}
+
+	if _, err := OpenInstallation(ctx, dataDir); err != nil {
+		return provisioningError(err)
+	}
+	store, err := OpenCredentialStore(ctx, dataDir)
+	if err != nil {
+		return provisioningError(err)
+	}
+	if err := store.Close(); err != nil {
+		return provisioningError(err)
+	}
+	return nil
+}
+
+func regularFileExists(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, ErrAgentProvisioningIncomplete
+	}
+	return true, nil
+}
+
+func provisioningError(err error) error {
+	if err == nil || errors.Is(err, ErrAgentProvisioningFailed) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrAgentProvisioningFailed, err)
 }
 
 func InitializeInstallation(ctx context.Context, dataDir string) (Installation, error) {
