@@ -40,5 +40,7 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="MONITORING_DRIVER" value="fake"/>
+        <env name="ROUTEROS_DISCOVERY_TRANSPORT" value="api_ssl"/>
     </php>
 </phpunit>

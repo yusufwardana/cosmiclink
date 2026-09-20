@@ -16,6 +16,7 @@ const (
 	List           Operation = "CREDENTIAL_LIST"
 	Inspect        Operation = "CREDENTIAL_INSPECT"
 	AddObserver    Operation = "CREDENTIAL_ADD_OBSERVER"
+	AddOperator    Operation = "CREDENTIAL_ADD_OPERATOR"
 	TestLocal      Operation = "CREDENTIAL_TEST_LOCAL"
 	RotateObserver Operation = "CREDENTIAL_ROTATE_OBSERVER"
 	Revoke         Operation = "CREDENTIAL_REVOKE"
@@ -53,6 +54,13 @@ type AddObserverPayload struct {
 	Username  string `json:"username"`
 	Secret    string `json:"secret"`
 }
+type AddOperatorPayload struct {
+	TenantRef    string `json:"tenant_ref"`
+	RouterRef    string `json:"router_ref"`
+	Username     string `json:"username"`
+	Secret       string `json:"secret"`
+	Confirmation string `json:"confirmation"`
+}
 type RotateObserverPayload struct {
 	CredentialRef string `json:"credential_ref"`
 	Username      string `json:"username"`
@@ -73,7 +81,7 @@ func DecodeRequest(data []byte) (Request, error) {
 		return Request{}, ErrUnsupportedVersion
 	}
 	switch request.Operation {
-	case StoreInit, List, Inspect, AddObserver, TestLocal, RotateObserver, Revoke, Retire:
+	case StoreInit, List, Inspect, AddObserver, AddOperator, TestLocal, RotateObserver, Revoke, Retire:
 	default:
 		return Request{}, ErrUnknownOperation
 	}

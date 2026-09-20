@@ -14,6 +14,12 @@ import (
 	"cosmiclink/network-engine/internal/ipc"
 )
 
+var (
+	credentialPrompt  = promptCredentials
+	confirmEnrollment = confirm
+	adminRequest      = sendAdminRequest
+)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -23,7 +29,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) < 2 || args[0] != "credential" {
-		return errors.New("usage: cosmiclink-agent credential <init|list|inspect|add|test|rotate|revoke|retire>")
+		return errors.New("usage: cosmiclink-agent credential <init|list|inspect|add|add-operator|test|rotate|revoke|retire>")
 	}
 	for _, arg := range args {
 		if arg == "--password" || arg == "--secret" {
@@ -77,6 +83,19 @@ func run(args []string) error {
 			return err
 		}
 		operation, payload = adminprotocol.AddObserver, adminprotocol.AddObserverPayload{TenantRef: args[2], RouterRef: args[3], Username: username, Secret: secret}
+	case "add-operator":
+		if len(args) != 4 {
+			return errors.New("usage: credential add-operator <tenant_ref> <router_ref>")
+		}
+		printOperatorPermissions(os.Stdout)
+		if err := confirmEnrollment("ENROLL_OPERATOR", ""); err != nil {
+			return err
+		}
+		username, secret, err := credentialPrompt()
+		if err != nil {
+			return err
+		}
+		operation, payload = adminprotocol.AddOperator, adminprotocol.AddOperatorPayload{TenantRef: args[2], RouterRef: args[3], Username: username, Secret: secret, Confirmation: "ENROLL_OPERATOR"}
 	case "rotate":
 		if len(args) != 3 {
 			return errors.New("usage: credential rotate <credential_ref>")
@@ -89,6 +108,10 @@ func run(args []string) error {
 	default:
 		return errors.New("unknown credential command")
 	}
+	return adminRequest(operation, payload)
+}
+
+func sendAdminRequest(operation adminprotocol.Operation, payload any) error {
 	request, err := adminprotocol.EncodeRequest(operation, payload)
 	if err != nil {
 		return err
@@ -113,6 +136,15 @@ func run(args []string) error {
 		_, _ = os.Stdout.Write(append(envelope.Result, '\n'))
 	}
 	return nil
+}
+
+func printOperatorPermissions(output io.Writer) {
+	fmt.Fprintln(output, "Existing RouterOS credential requirements for controlled operations:")
+	fmt.Fprintln(output, "- OPERATOR write access for /ppp/secret/set")
+	fmt.Fprintln(output, "- OPERATOR write access for /ppp/active/remove")
+	fmt.Fprintln(output, "- the separate OBSERVER retains read access for /ppp/secret/print and /ppp/active/print preflight/postflight checks")
+	fmt.Fprintln(output, "RouterOS v6 policy groups are not command-granular; use the least-privileged groups that permit these API operations.")
+	fmt.Fprintln(output, "CosmicLink still enforces the typed application allowlist: ENABLE_PPPOE, DISABLE_PPPOE, DISCONNECT_SESSION.")
 }
 
 func parseRef(args []string) (string, int, error) {

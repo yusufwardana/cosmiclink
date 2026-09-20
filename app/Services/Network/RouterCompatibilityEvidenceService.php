@@ -37,36 +37,33 @@ class RouterCompatibilityEvidenceService
             return $this->decision(false, 'IDENTITY_MISSING', $provider, $executionMode, $snapshot->id);
         }
 
-        if (! hash_equals((string) $router->name, $identity)) {
-            return $this->decision(false, 'IDENTITY_MISMATCH', $provider, $executionMode, $snapshot->id);
-        }
-
         if (! $snapshot->discovered_at) {
-            return $this->decision(false, 'VERSION_MISSING', $provider, $executionMode, $snapshot->id);
+            return $this->decision(false, 'VERSION_MISSING', $provider, $executionMode, $snapshot->id, observedIdentity: $identity);
         }
 
         if ($snapshot->discovered_at->lt(now()->subSeconds((int) config('network.discovery_freshness_seconds', 86400)))) {
-            return $this->decision(false, 'DISCOVERY_STALE', $provider, $executionMode, $snapshot->id);
+            return $this->decision(false, 'DISCOVERY_STALE', $provider, $executionMode, $snapshot->id, observedIdentity: $identity);
         }
 
-        $version = $device['routeros_version'] ?? null;
-        if ($version === null || trim((string) $version) === '') {
-            return $this->decision(false, 'VERSION_MISSING', $provider, $executionMode, $snapshot->id);
+        $rawVersion = $device['routeros_version'] ?? null;
+        if ($rawVersion === null || trim((string) $rawVersion) === '') {
+            return $this->decision(false, 'VERSION_MISSING', $provider, $executionMode, $snapshot->id, observedIdentity: $identity);
         }
 
-        $version = trim((string) $version);
-        if (! preg_match('/^\d+\.\d+\.\d+$/', $version)) {
-            return $this->decision(false, 'VERSION_INVALID', $provider, $executionMode, $snapshot->id, $version);
+        $rawVersion = trim((string) $rawVersion);
+        if (! preg_match('/^(\d+\.\d+\.\d+)(?: \([A-Za-z0-9][A-Za-z0-9.-]*\))?$/D', $rawVersion, $matches)) {
+            return $this->decision(false, 'VERSION_INVALID', $provider, $executionMode, $snapshot->id, rawVersion: $rawVersion, observedIdentity: $identity);
         }
+        $version = $matches[1];
 
         if (! str_starts_with($version, '6.')) {
-            return $this->decision(false, 'VERSION_UNSUPPORTED', $provider, $executionMode, $snapshot->id, $version);
+            return $this->decision(false, 'VERSION_UNSUPPORTED', $provider, $executionMode, $snapshot->id, $version, $rawVersion, $identity);
         }
 
-        return $this->decision(true, 'COMPATIBLE', $provider, $executionMode, $snapshot->id, $version);
+        return $this->decision(true, 'COMPATIBLE', $provider, $executionMode, $snapshot->id, $version, $rawVersion, $identity);
     }
 
-    private function decision(bool $compatible, string $reason, string $provider, string $executionMode, ?int $snapshotId = null, ?string $version = null): RouterCompatibilityDecision
+    private function decision(bool $compatible, string $reason, string $provider, string $executionMode, ?int $snapshotId = null, ?string $version = null, ?string $rawVersion = null, ?string $observedIdentity = null): RouterCompatibilityDecision
     {
         return new RouterCompatibilityDecision(
             compatible: $compatible,
@@ -79,6 +76,8 @@ class RouterCompatibilityEvidenceService
             hardwareAccepted: false,
             snapshotId: $snapshotId,
             routerOsVersion: $version,
+            rawRouterOsVersion: $rawVersion,
+            observedIdentity: $observedIdentity,
         );
     }
 }

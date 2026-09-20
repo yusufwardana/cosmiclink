@@ -26,8 +26,8 @@ class Phase6ITask29RouterHealthFreshnessTest extends TestCase
     public function test_default_monitoring_configuration_keeps_checkpoint_inside_freshness_window(): void
     {
         $this->assertLessThanOrEqual(
-            config('monitoring.checkpoint_seconds'),
-            config('monitoring.freshness_seconds')
+            config('monitoring.freshness_seconds'),
+            config('monitoring.checkpoint_seconds')
         );
     }
 

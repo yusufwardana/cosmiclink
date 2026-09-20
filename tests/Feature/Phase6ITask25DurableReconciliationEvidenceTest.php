@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Network\AdoptDiscoveredNetworkResource;
 use App\Services\Network\DiscoveryResult;
 use App\Services\Network\NetworkDiscoveryClient;
+use App\Services\Network\NetworkDiscoveryService;
 use App\Services\Network\NetworkReconciliationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -47,6 +48,47 @@ class Phase6ITask25DurableReconciliationEvidenceTest extends TestCase
         $this->assertNotNull($evidence->reconciled_at);
         $this->assertNotEmpty($evidence->relationship_fingerprint);
         $this->assertTrue($evidence->isCurrentlyApplicable());
+    }
+
+    public function test_nullable_routeros_text_does_not_duplicate_an_adopted_stable_identity(): void
+    {
+        [$tenant, $user, $router] = $this->tenantRouter();
+        $discovery = app(NetworkDiscoveryService::class);
+        $first = $discovery->persist($router, $user, $this->discoveryResult($router, ''));
+        $resource = DiscoveredNetworkResource::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('router_id', $router->id)
+            ->where('resource_type', 'pppoe_account')
+            ->where('external_ref', '*1D')
+            ->firstOrFail();
+        $connection = $this->connection($tenant, $router);
+        app(AdoptDiscoveredNetworkResource::class)->handle($resource, $connection, $user);
+
+        $second = $discovery->persist($router->fresh(), $user, $this->discoveryResult($router, null));
+        $rows = DiscoveredNetworkResource::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('router_id', $router->id)
+            ->where('resource_type', 'pppoe_account')
+            ->where('external_ref', '*1D')
+            ->get();
+        $result = app(NetworkReconciliationService::class)->reconcile($router->fresh());
+
+        $this->assertSame(1, $rows->count());
+        $this->assertSame($resource->id, $rows->first()->id);
+        $this->assertSame($second->id, $rows->first()->discovery_snapshot_id);
+        $this->assertSame($connection->id, $rows->first()->customer_connection_id);
+        $this->assertSame($connection->fresh()->network_account_id, $rows->first()->network_account_id);
+        $this->assertSame('ADOPTED', $rows->first()->management_state);
+        $this->assertSame('', $rows->first()->normalized_data['comment']);
+        $this->assertSame('MATCHED', $result->firstWhere('resource.id', $resource->id)['status']);
+        $this->assertDatabaseHas('network_reconciliation_evidence', [
+            'adopted_resource_id' => $resource->id,
+            'compared_resource_id' => $resource->id,
+            'discovery_snapshot_id' => $second->id,
+            'outcome' => 'MATCHED',
+        ]);
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertDatabaseCount('network_operation_logs', 0);
     }
 
     public function test_each_reconciliation_outcome_is_persisted_as_historical_evidence(): void
@@ -245,6 +287,29 @@ class Phase6ITask25DurableReconciliationEvidenceTest extends TestCase
             'discovered_at' => $discoveredAt,
             'summary' => [],
             'snapshot' => ['device' => ['name' => 'CORE-01']],
+        ]);
+    }
+
+    private function discoveryResult(Router $router, ?string $comment): DiscoveryResult
+    {
+        return new DiscoveryResult(true, 'Read-only discovery complete', null, [
+            'provider' => 'routeros',
+            'router_ref' => (string) $router->id,
+            'discovered_at' => now()->toIso8601String(),
+            'snapshot' => [
+                'device' => ['name' => 'TP-Link', 'routeros_version' => '6.49.13 (long-term)'],
+                'profiles' => [],
+                'accounts' => [[
+                    'external_ref' => '*1D',
+                    'username' => 'cosmiclink-test',
+                    'profile' => 'cosmiclink-test',
+                    'service' => 'pppoe',
+                    'enabled' => false,
+                    'comment' => $comment,
+                ]],
+                'address_pools' => [],
+                'queues' => [],
+            ],
         ]);
     }
 

@@ -15,6 +15,8 @@ final readonly class RouterCompatibilityDecision
         public bool $hardwareAccepted = false,
         public ?int $snapshotId = null,
         public ?string $routerOsVersion = null,
+        public ?string $rawRouterOsVersion = null,
+        public ?string $observedIdentity = null,
     ) {}
 
     public function canAuthorizeRealMutation(): bool

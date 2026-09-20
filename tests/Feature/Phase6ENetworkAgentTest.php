@@ -78,6 +78,17 @@ class Phase6ENetworkAgentTest extends TestCase
         $this->assertSame((string) $router->tenant_id, $claim['job']['tenant_ref']);
         $this->assertSame((string) $router->id, $claim['job']['router_ref']);
         $this->assertSame($job->id, $claim['job']['id']);
+        $this->assertSame($router->host, $claim['job']['host']);
+        $this->assertSame($router->api_port, $claim['job']['port']);
+        $this->assertSame(config('network.routeros.transport'), $claim['job']['transport']);
+        $this->assertSame(config('network.routeros.connect_timeout_seconds'), $claim['job']['connect_timeout_seconds']);
+        $this->assertSame(config('network.routeros.read_timeout_seconds'), $claim['job']['read_timeout_seconds']);
+        $this->assertSame((bool) config('network.routeros.insecure_tls'), $claim['job']['insecure_tls']);
+        $this->assertSame('installation-1', $claim['job']['installation_id']);
+        $this->assertSame('cred-1', $claim['job']['credential_ref']);
+        $this->assertSame('OBSERVER', $claim['job']['credential_purpose']);
+        $this->assertSame(1, $claim['job']['credential_version']);
+        $this->assertArrayNotHasKey('connection', $claim['job']);
     }
 
     public function test_invalid_or_cross_tenant_agent_cannot_claim_job_and_a_job_is_claimed_once(): void

@@ -258,7 +258,18 @@ class NetworkAgentService
                 if ($reference->purpose !== CredentialPurpose::OBSERVER) {
                     abort(422);
                 }
-                $jobPayload += ['credential_ref' => $reference->credentialRef, 'credential_purpose' => $reference->purpose->value, 'credential_version' => $reference->version, 'installation_id' => $reference->installationId];
+                $jobPayload += [
+                    'credential_ref' => $reference->credentialRef,
+                    'credential_purpose' => $reference->purpose->value,
+                    'credential_version' => $reference->version,
+                    'installation_id' => $reference->installationId,
+                    'host' => $router->host,
+                    'port' => (int) $router->api_port,
+                    'transport' => config('network.routeros.transport'),
+                    'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
+                    'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
+                    'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
+                ];
             } else {
                 $jobPayload['connection'] = ['host' => $router->host, 'port' => (int) $router->api_port, 'username' => $router->username, 'password' => $router->password(), 'transport' => config('network.routeros.transport'), 'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'), 'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'), 'insecure_tls' => (bool) config('network.routeros.insecure_tls')];
             }

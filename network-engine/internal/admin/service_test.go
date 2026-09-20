@@ -94,3 +94,39 @@ func TestServiceRejectsOperatorPayload(t *testing.T) {
 		t.Fatalf("crafted purpose error=%v", err)
 	}
 }
+
+func TestServiceEnrollsOperatorWithServerFixedPurposeAndMetadataOnlyAudit(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("production DPAPI provider is Windows-only")
+	}
+	service, dir := testService(t)
+	if _, err := service.Handle(context.Background(), adminprotocol.Request{Version: adminprotocol.Version, Operation: adminprotocol.StoreInit, Payload: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := service.Handle(context.Background(), adminprotocol.Request{Version: adminprotocol.Version, Operation: adminprotocol.AddOperator, Payload: json.RawMessage(`{"tenant_ref":"tenant-1","router_ref":"router-1","username":"operator-user","secret":"OPERATOR_SENTINEL_SECRET","confirmation":"wrong"}`)})
+	if !errors.Is(err, ErrConfirmation) {
+		t.Fatalf("missing confirmation error=%v", err)
+	}
+
+	created := handle(t, service, adminprotocol.AddOperator, adminprotocol.AddOperatorPayload{TenantRef: "tenant-1", RouterRef: "router-1", Username: "operator-user", Secret: "OPERATOR_SENTINEL_SECRET", Confirmation: "ENROLL_OPERATOR"})
+	encoded, _ := json.Marshal(created)
+	if strings.Contains(string(encoded), "OPERATOR_SENTINEL_SECRET") || strings.Contains(string(encoded), "operator-user") {
+		t.Fatalf("secret-bearing result: %s", encoded)
+	}
+	var metadata Metadata
+	if err := json.Unmarshal(encoded, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Purpose != "OPERATOR" || metadata.Version != 1 || metadata.CredentialRef == "" || metadata.AgentRef == "" || metadata.Status != "ACTIVE" {
+		t.Fatalf("operator metadata = %#v", metadata)
+	}
+
+	logBytes, err := os.ReadFile(filepath.Join(dir, "audit", "credential-admin.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logBytes), "OPERATOR_SENTINEL_SECRET") || strings.Contains(string(logBytes), "operator-user") {
+		t.Fatal("operator secret leaked into audit")
+	}
+}

@@ -38,11 +38,30 @@ class Phase6ITask26RouterCompatibilityEvidenceTest extends TestCase
         $this->assertReason('IDENTITY_MISSING', $router);
     }
 
-    public function test_identity_mismatch_fails_closed(): void
+    public function test_observed_hardware_identity_is_independent_from_operator_display_name(): void
     {
         $router = $this->routerWithSnapshot('OTHER-ROUTER', '6.49.13');
 
-        $this->assertReason('IDENTITY_MISMATCH', $router);
+        $decision = app(RouterCompatibilityEvidenceService::class)->evaluate($router);
+
+        $this->assertTrue($decision->compatible);
+        $this->assertSame('COMPATIBLE', $decision->reason);
+        $this->assertSame('OTHER-ROUTER', $decision->observedIdentity);
+        $this->assertSame('CORE-01', $router->name);
+    }
+
+    public function test_routeros_channel_suffix_is_normalized_without_losing_raw_evidence(): void
+    {
+        $router = $this->routerWithSnapshot('TP-Link', '6.49.13 (long-term)');
+
+        $decision = app(RouterCompatibilityEvidenceService::class)->evaluate($router);
+
+        $this->assertTrue($decision->compatible);
+        $this->assertSame('COMPATIBLE', $decision->reason);
+        $this->assertSame('TP-Link', $decision->observedIdentity);
+        $this->assertSame('6.49.13 (long-term)', $decision->rawRouterOsVersion);
+        $this->assertSame('6.49.13', $decision->routerOsVersion);
+        $this->assertTrue($decision->architectureSupported);
     }
 
     public function test_missing_version_fails_closed(): void
@@ -54,9 +73,9 @@ class Phase6ITask26RouterCompatibilityEvidenceTest extends TestCase
 
     public function test_malformed_version_fails_closed(): void
     {
-        $router = $this->routerWithSnapshot('CORE-01', 'six.forty-nine');
-
-        $this->assertReason('VERSION_INVALID', $router);
+        foreach (['six.forty-nine', '6.49', '6.49.13 long-term', '6.49.13 (long term!)', '6.49.13 (long-term) trailing'] as $version) {
+            $this->assertReason('VERSION_INVALID', $this->routerWithSnapshot('CORE-01', $version));
+        }
     }
 
     public function test_version_boundaries_are_routeros_v6_only(): void

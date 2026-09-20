@@ -109,6 +109,12 @@ func (s *Service) Handle(ctx context.Context, request adminprotocol.Request) (an
 			return nil, err
 		}
 		return s.add(ctx, p)
+	case adminprotocol.AddOperator:
+		var p adminprotocol.AddOperatorPayload
+		if err := adminprotocol.DecodePayload(request.Payload, &p); err != nil {
+			return nil, err
+		}
+		return s.addOperator(ctx, p)
 	case adminprotocol.RotateObserver:
 		var p adminprotocol.RotateObserverPayload
 		if err := adminprotocol.DecodePayload(request.Payload, &p); err != nil {
@@ -291,6 +297,35 @@ func (s *Service) add(ctx context.Context, p adminprotocol.AddObserverPayload) (
 	}
 	result := publicMetadata(item)
 	return result, nil
+}
+func (s *Service) addOperator(ctx context.Context, p adminprotocol.AddOperatorPayload) (any, error) {
+	if p.Confirmation != "ENROLL_OPERATOR" {
+		s.audit("CREDENTIAL_ADMIN_DENIED", "", string(credentials.PurposeOperator), p.TenantRef, p.RouterRef, 0, "denied", "confirmation")
+		return nil, ErrConfirmation
+	}
+	if p.Secret == "" || p.Username == "" {
+		return nil, ErrLocalValidation
+	}
+	store, inst, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	ref := credentials.Reference{TenantRef: p.TenantRef, RouterRef: p.RouterRef, AgentRef: inst.AgentRef, InstallationID: inst.InstallationID, CredentialRef: uuid(), Purpose: credentials.PurposeOperator, Version: 1}
+	version, err := store.NextVersion(ctx, ref)
+	if err != nil {
+		return nil, ErrLocalValidation
+	}
+	ref.Version = version
+	if err := store.Insert(ctx, ref, p.Username, []byte(p.Secret)); err != nil {
+		return nil, ErrLocalValidation
+	}
+	s.audit("CREDENTIAL_CREATED", ref.CredentialRef, string(ref.Purpose), ref.TenantRef, ref.RouterRef, ref.Version, "success", "")
+	item, err := metadataFor(ctx, store, ref.CredentialRef, ref.Version)
+	if err != nil {
+		return nil, err
+	}
+	return publicMetadata(item), nil
 }
 func (s *Service) rotate(ctx context.Context, p adminprotocol.RotateObserverPayload) (any, error) {
 	store, inst, err := s.open(ctx)

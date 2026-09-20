@@ -34,6 +34,7 @@ class NetworkDiscoveryService
                 foreach (['profiles' => 'pppoe_profile', 'accounts' => 'pppoe_account', 'address_pools' => 'address_pool', 'queues' => 'queue'] as $section => $type) {
                     foreach (($normalizedSnapshot[$section] ?? []) as $data) {
                         $data = $this->sanitize($data);
+                        $data = $this->normalizeResourceData($section, $data);
                         $fingerprint = hash('sha256', json_encode($this->canonical($data)));
                         $resource = DiscoveredNetworkResource::firstOrNew(['tenant_id' => $router->tenant_id, 'router_id' => $router->id, 'resource_type' => $type, 'fingerprint' => $fingerprint]);
                         $resource->fill(['discovery_snapshot_id' => $snapshot->id, 'external_ref' => (string) ($data['external_ref'] ?? $data['name'] ?? $fingerprint), 'name' => (string) ($data['username'] ?? $data['name'] ?? $data['external_ref'] ?? $fingerprint), 'normalized_data' => $data, 'last_seen_at' => $discoveredAt]);
@@ -88,6 +89,15 @@ class NetworkDiscoveryService
             if (is_array($v)) {
                 $v = $this->canonical($v);
             }
+        }
+
+        return $data;
+    }
+
+    private function normalizeResourceData(string $section, array $data): array
+    {
+        if ($section === 'accounts' && array_key_exists('comment', $data) && $data['comment'] === null) {
+            $data['comment'] = '';
         }
 
         return $data;

@@ -62,9 +62,13 @@ func hiddenLine(in *bufio.Reader, prompt string) (string, error) {
 
 func confirm(kind, ref string) error {
 	in := bufio.NewReader(os.Stdin)
-	fmt.Printf("Type %s %s: ", kind, ref)
+	expected := kind
+	if ref != "" {
+		expected += " " + ref
+	}
+	fmt.Printf("Type %s: ", expected)
 	line, err := in.ReadString('\n')
-	if err != nil || strings.TrimSpace(line) != kind+" "+ref {
+	if err != nil || strings.TrimSpace(line) != expected {
 		return errors.New("CREDENTIAL_CONFIRMATION_INVALID")
 	}
 	return nil
