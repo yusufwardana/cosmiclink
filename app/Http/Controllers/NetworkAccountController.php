@@ -33,7 +33,7 @@ class NetworkAccountController extends Controller
 
     public function status(NetworkAccount $account, string $status, NetworkOperationService $operations)
     {
-        $this->authorizeAccount($account);
+        $this->authorizeControlledAccount($account);
         abort_unless(in_array($status, ['active', 'disabled'], true), 404);
         $result = $operations->changeStatus($account, $status, Auth::user());
 
@@ -51,7 +51,7 @@ class NetworkAccountController extends Controller
 
     public function disconnect(NetworkAccount $account, NetworkOperationService $operations)
     {
-        $this->authorizeAccount($account);
+        $this->authorizeControlledAccount($account);
         $result = $operations->disconnect($account, Auth::user());
 
         return $result->successful ? back()->with('status', $result->message) : back()->withErrors(['account' => $result->message]);
@@ -85,5 +85,11 @@ class NetworkAccountController extends Controller
         // account row is not enough, the actor must be a network operator.
         Gate::authorize('operate', $account->router);
         abort_unless(! data_get($account->metadata, 'adopted_from_discovery', false), 422, 'Adopted accounts are read-only.');
+    }
+
+    private function authorizeControlledAccount(NetworkAccount $account): void
+    {
+        abort_unless($account->tenant_id === Auth::user()->tenant_id, 403);
+        Gate::authorize('operate', $account->router);
     }
 }

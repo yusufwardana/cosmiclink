@@ -116,7 +116,7 @@ class Phase6ITask2ControlledGateTest extends TestCase
             $decision = app(ControlledNetworkOperationGate::class)->check($operator, $account, $operation);
 
             $this->assertFalse($decision->allowed);
-            $this->assertSame('RECONCILIATION_NOT_MATCHED', $decision->errorCode);
+            $this->assertSame('SCOPE_NOT_CONFIRMED', $decision->errorCode);
         }
     }
 

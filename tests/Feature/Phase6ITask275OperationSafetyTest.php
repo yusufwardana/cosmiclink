@@ -6,16 +6,29 @@ use App\Models\NetworkAccount;
 use App\Models\NetworkOperationLog;
 use App\Models\Router;
 use App\Models\Tenant;
+use App\Models\User;
+use App\Services\Network\ControlledNetworkOperationDecision;
+use App\Services\Network\ControlledNetworkOperationGate;
 use App\Services\Network\NetworkDriver;
 use App\Services\Network\NetworkOperationResult;
 use App\Services\Network\NetworkOperationSafetyQuery;
 use App\Services\Network\NetworkOperationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use Tests\TestCase;
 
 class Phase6ITask275OperationSafetyTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['network.mutations_enabled' => true]);
+        $gate = Mockery::mock(ControlledNetworkOperationGate::class);
+        $gate->shouldReceive('check')->andReturn(ControlledNetworkOperationDecision::allow());
+        $this->app->instance(ControlledNetworkOperationGate::class, $gate);
+    }
 
     public function test_reservation_is_durable_before_driver_invocation_and_success_resolves(): void
     {
@@ -30,8 +43,8 @@ class Phase6ITask275OperationSafetyTest extends TestCase
             ]);
         };
 
-        $result = (new NetworkOperationService(new Task275ReservationNetworkDriver($invoked, $assertReservation)))
-            ->changeStatus($account, 'active');
+        $result = $this->service(new Task275ReservationNetworkDriver($invoked, $assertReservation))
+            ->changeStatus($account, 'active', $this->operatorFor($account));
 
         $this->assertTrue($invoked);
         $this->assertTrue($result->successful);
@@ -62,9 +75,9 @@ class Phase6ITask275OperationSafetyTest extends TestCase
     {
         $account = $this->account();
 
-        $result = (new NetworkOperationService($this->driverReturning(
+        $result = $this->service($this->driverReturning(
             new NetworkOperationResult(false, 'timeout', 'NETWORK_ENGINE_TIMEOUT')
-        )))->changeStatus($account, 'active');
+        ))->changeStatus($account, 'active', $this->operatorFor($account));
 
         $this->assertFalse($result->successful);
         $this->assertSame('NETWORK_ENGINE_TIMEOUT', $result->errorCode);
@@ -118,9 +131,9 @@ class Phase6ITask275OperationSafetyTest extends TestCase
             'completed_at' => null,
         ]);
 
-        $result = (new NetworkOperationService($this->driverReturning(
+        $result = $this->service($this->driverReturning(
             new NetworkOperationResult(true, 'should not run')
-        )))->changeStatus($account, 'active');
+        ))->changeStatus($account, 'active', $this->operatorFor($account));
 
         $this->assertFalse($result->successful);
         $this->assertSame('CONCURRENT_OPERATION', $result->errorCode);
@@ -130,12 +143,12 @@ class Phase6ITask275OperationSafetyTest extends TestCase
     {
         $account = $this->account();
         $other = $this->account();
-        $service = new NetworkOperationService($this->driverReturning(new NetworkOperationResult(true, 'enabled')));
+        $service = $this->service($this->driverReturning(new NetworkOperationResult(true, 'enabled')));
 
-        $first = $service->changeStatus($account, 'active', idempotencyKey: 'same-key');
-        $replay = $service->changeStatus($account, 'active', idempotencyKey: 'same-key');
-        $conflict = $service->changeStatus($account, 'disabled', idempotencyKey: 'same-key');
-        $otherTenant = $service->changeStatus($other, 'active', idempotencyKey: 'same-key');
+        $first = $service->changeStatus($account, 'active', $this->operatorFor($account), idempotencyKey: 'same-key');
+        $replay = $service->changeStatus($account, 'active', $this->operatorFor($account), idempotencyKey: 'same-key');
+        $conflict = $service->changeStatus($account, 'disabled', $this->operatorFor($account), idempotencyKey: 'same-key');
+        $otherTenant = $service->changeStatus($other, 'active', $this->operatorFor($other), idempotencyKey: 'same-key');
 
         $this->assertTrue($first->successful);
         $this->assertTrue($replay->successful);
@@ -150,10 +163,10 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $routerB = Router::factory()->for($tenant)->create();
         $accountA = $this->accountFor($tenant, $routerA, 'router-a-user');
         $accountB = $this->accountFor($tenant, $routerB, 'router-b-user');
-        $service = new NetworkOperationService($this->driverReturning(new NetworkOperationResult(true, 'enabled')));
+        $service = $this->service($this->driverReturning(new NetworkOperationResult(true, 'enabled')));
 
-        $this->assertTrue($service->changeStatus($accountA, 'active')->successful);
-        $this->assertTrue($service->changeStatus($accountB, 'active')->successful);
+        $this->assertTrue($service->changeStatus($accountA, 'active', $this->operatorFor($accountA))->successful);
+        $this->assertTrue($service->changeStatus($accountB, 'active', $this->operatorFor($accountB))->successful);
     }
 
     public function test_billing_boundary_blocks_non_fake_driver_before_dispatch(): void
@@ -162,13 +175,23 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $invoked = false;
 
         config(['network.mutations_enabled' => true]);
-        $result = (new NetworkOperationService(new Task275BlockedNetworkDriver($invoked)))
+        $result = $this->service(new Task275BlockedNetworkDriver($invoked))
             ->changeStatusForBilling($account, 'active');
 
         $this->assertFalse($result->successful);
         $this->assertSame('BILLING_NETWORK_DISPATCH_BLOCKED', $result->errorCode);
         $this->assertFalse($invoked);
         $this->assertDatabaseCount('network_operation_logs', 0);
+    }
+
+    private function operatorFor(NetworkAccount $account): User
+    {
+        return User::factory()->for($account->tenant)->create(['role' => 'admin']);
+    }
+
+    private function service(NetworkDriver $driver): NetworkOperationService
+    {
+        return new NetworkOperationService($driver, app(ControlledNetworkOperationGate::class));
     }
 
     private function driverReturning(NetworkOperationResult $result): NetworkDriver

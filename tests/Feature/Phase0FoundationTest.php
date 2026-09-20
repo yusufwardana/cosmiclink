@@ -7,8 +7,12 @@ use App\Models\NetworkOperationLog;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Network\ControlledNetworkOperationDecision;
+use App\Services\Network\ControlledNetworkOperationGate;
+use App\Services\Network\ManagedAccountLifecycleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
+use Mockery;
 use Tests\TestCase;
 
 class Phase0FoundationTest extends TestCase
@@ -144,6 +148,14 @@ class Phase0FoundationTest extends TestCase
         ])->assertRedirect();
 
         $account = NetworkAccount::query()->where('username', 'cust001')->firstOrFail();
+        config(['network.mutations_enabled' => true]);
+        $account->update([
+            'management_state' => 'MANAGED',
+            'management_scope' => ManagedAccountLifecycleService::MANAGEMENT_SCOPE,
+        ]);
+        $gate = Mockery::mock(ControlledNetworkOperationGate::class);
+        $gate->shouldReceive('check')->times(3)->andReturn(ControlledNetworkOperationDecision::allow());
+        $this->app->instance(ControlledNetworkOperationGate::class, $gate);
         $this->actingAs($user)->post(route('network.accounts.disable', $account))->assertRedirect();
         $this->actingAs($user)->post(route('network.accounts.enable', $account))->assertRedirect();
         $this->actingAs($user)->put(route('network.accounts.profile', $account), [

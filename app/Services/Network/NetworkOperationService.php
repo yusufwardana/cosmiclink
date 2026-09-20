@@ -20,7 +20,10 @@ class NetworkOperationService
         'NETWORK_ENGINE_INVALID_RESPONSE',
     ];
 
-    public function __construct(private readonly NetworkDriver $driver) {}
+    public function __construct(
+        private readonly NetworkDriver $driver,
+        private readonly ControlledNetworkOperationGate $controlledGate,
+    ) {}
 
     public function testConnection(Router $router, ?User $user = null): NetworkOperationResult
     {
@@ -35,11 +38,11 @@ class NetworkOperationService
     public function changeStatus(NetworkAccount $account, string $status, ?User $user = null, ?CustomerConnection $connection = null, ?string $idempotencyKey = null): NetworkOperationResult
     {
         $operation = $status === 'active' ? 'ENABLE_PPPOE' : 'DISABLE_PPPOE';
-        $result = $this->execute($operation, $account->router, $account->username, [], fn () => $status === 'active'
-            ? $this->driver->enablePppoeAccount($account->router, $account->username)
-            : $this->driver->disablePppoeAccount($account->router, $account->username), $user, $connection, $account, $idempotencyKey);
+        $result = $this->execute($operation, $account->router, $account->username, [], fn (NetworkAccount $currentAccount) => $status === 'active'
+            ? $this->driver->enablePppoeAccount($currentAccount->router, $currentAccount->username)
+            : $this->driver->disablePppoeAccount($currentAccount->router, $currentAccount->username), $user, $connection, $account, $idempotencyKey);
         if ($result->successful) {
-            $account->update(['status' => $status]);
+            NetworkAccount::query()->whereKey($account->id)->update(['status' => $status]);
         }
 
         return $result;
@@ -57,7 +60,7 @@ class NetworkOperationService
 
     public function disconnect(NetworkAccount $account, ?User $user = null): NetworkOperationResult
     {
-        return $this->execute('DISCONNECT_SESSION', $account->router, $account->username, [], fn () => $this->driver->disconnectPppoeSession($account->router, $account->username), $user, account: $account);
+        return $this->execute('DISCONNECT_SESSION', $account->router, $account->username, [], fn (NetworkAccount $currentAccount) => $this->driver->disconnectPppoeSession($currentAccount->router, $currentAccount->username), $user, account: $account);
     }
 
     public function billingMayExecute(): bool
@@ -71,14 +74,27 @@ class NetworkOperationService
             return new NetworkOperationResult(false, 'Billing network operations are simulation-only.', 'BILLING_NETWORK_DISPATCH_BLOCKED');
         }
 
-        return $this->changeStatus($account, $status, $user, $connection);
+        if ($user === null || $user->tenant_id !== $account->tenant_id || data_get($account->metadata, 'adopted_from_discovery', false)) {
+            return new NetworkOperationResult(false, 'Billing network simulation is not authorized for this account.', ControlledOperationReason::OPERATION_NOT_ALLOWED);
+        }
+
+        $operation = $status === 'active' ? 'ENABLE_PPPOE' : 'DISABLE_PPPOE';
+        $result = $this->execute($operation, $account->router, $account->username, [], fn () => $status === 'active'
+            ? $this->driver->enablePppoeAccount($account->router, $account->username)
+            : $this->driver->disablePppoeAccount($account->router, $account->username), $user, $connection, $account, null, false);
+
+        if ($result->successful) {
+            $account->update(['status' => $status]);
+        }
+
+        return $result;
     }
 
-    private function execute(string $operation, Router $router, ?string $target, array $payload, callable $callback, ?User $user, ?CustomerConnection $connection = null, ?NetworkAccount $account = null, ?string $idempotencyKey = null): NetworkOperationResult
+    private function execute(string $operation, Router $router, ?string $target, array $payload, callable $callback, ?User $user, ?CustomerConnection $connection = null, ?NetworkAccount $account = null, ?string $idempotencyKey = null, bool $controlled = true): NetworkOperationResult
     {
         $started = Carbon::now();
         $safePayload = $this->sanitize($payload);
-        if (! in_array($operation, self::CONTROLLED_OPERATIONS, true)) {
+        if (! $controlled || ! in_array($operation, self::CONTROLLED_OPERATIONS, true)) {
             $result = $callback();
             NetworkOperationLog::create([
                 'tenant_id' => $router->tenant_id,
@@ -101,17 +117,35 @@ class NetworkOperationService
 
             return $result;
         }
-        $idempotencyKey ??= $this->defaultIdempotencyKey($operation, $router, $target, $safePayload, $account);
-        $requestDigest = hash('sha256', json_encode([$operation, $router->tenant_id, $router->id, $account?->id, $target, $safePayload], JSON_THROW_ON_ERROR));
-        $scope = $account ? 'account:'.$account->id : 'router:'.$router->id;
-        $reservation = $this->reserve($router, $account, $connection, $operation, $target, $safePayload, $user, $idempotencyKey, $requestDigest, $scope, $started);
+        if ($account === null || $user === null) {
+            return new NetworkOperationResult(false, 'Controlled network operation authorization is required.', ControlledOperationReason::OPERATION_NOT_ALLOWED);
+        }
+
+        // Re-read the account at the dispatch boundary so stale browser/request
+        // state cannot authorize an operation after management was revoked.
+        $currentAccount = NetworkAccount::query()->find($account->id);
+        if ($currentAccount === null) {
+            return new NetworkOperationResult(false, 'Controlled network operation authorization is required.', ControlledOperationReason::TARGET_NOT_FOUND);
+        }
+
+        $currentRouter = $currentAccount->router;
+        $currentTarget = $currentAccount->username;
+        $currentPayload = $safePayload;
+        $decision = $this->controlledGate->check($user, $currentAccount, $operation);
+        if (! $decision->allowed) {
+            return new NetworkOperationResult(false, 'Controlled network operation denied.', $decision->errorCode);
+        }
+        $idempotencyKey ??= $this->defaultIdempotencyKey($operation, $currentRouter, $currentTarget, $currentPayload, $currentAccount);
+        $requestDigest = hash('sha256', json_encode([$operation, $currentRouter->tenant_id, $currentRouter->id, $currentAccount->id, $currentTarget, $currentPayload], JSON_THROW_ON_ERROR));
+        $scope = 'account:'.$currentAccount->id;
+        $reservation = $this->reserve($currentRouter, $currentAccount, $connection, $operation, $currentTarget, $currentPayload, $user, $idempotencyKey, $requestDigest, $scope, $started);
 
         if ($reservation instanceof NetworkOperationResult) {
             return $reservation;
         }
 
         try {
-            $result = $callback();
+            $result = $callback($currentAccount);
         } catch (\Throwable) {
             $result = new NetworkOperationResult(false, 'Network operation failed.', 'NETWORK_ENGINE_UNAVAILABLE');
         }

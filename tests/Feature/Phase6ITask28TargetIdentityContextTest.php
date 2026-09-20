@@ -18,6 +18,7 @@ use App\Services\Network\AdoptDiscoveredNetworkResource;
 use App\Services\Network\ControlledNetworkOperationGate;
 use App\Services\Network\ControlledOperationReason;
 use App\Services\Network\DiscoveryResult;
+use App\Services\Network\ManagedAccountLifecycleService;
 use App\Services\Network\ManagedTargetIdentityService;
 use App\Services\Network\NetworkDiscoveryClient;
 use App\Services\Network\NetworkDiscoveryService;
@@ -317,7 +318,10 @@ class Phase6ITask28TargetIdentityContextTest extends TestCase
     {
         config()->set('network.mutations_enabled', true);
         $fixture = $this->adoptedFixture(externalRef: '*7');
-        $fixture['account']->fresh()->update(['management_state' => 'MANAGED']);
+        $fixture['account']->fresh()->update([
+            'management_state' => 'MANAGED',
+            'management_scope' => ManagedAccountLifecycleService::MANAGEMENT_SCOPE,
+        ]);
         $gate = app(ControlledNetworkOperationGate::class);
 
         $healthy = $gate->check($fixture['user'], $fixture['account']->fresh(), 'DISABLE_PPPOE');

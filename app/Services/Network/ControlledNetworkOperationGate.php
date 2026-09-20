@@ -38,6 +38,9 @@ class ControlledNetworkOperationGate
         if ($account->management_state !== 'MANAGED') {
             return ControlledNetworkOperationDecision::deny(ControlledOperationReason::NOT_MANAGED);
         }
+        if ($account->management_scope !== ManagedAccountLifecycleService::MANAGEMENT_SCOPE) {
+            return ControlledNetworkOperationDecision::deny(ControlledOperationReason::SCOPE_NOT_CONFIRMED);
+        }
 
         // Phase 6i Task 2.8: a managed account's RouterOS target identity,
         // session, and preflight context is evaluated and reported as evidence

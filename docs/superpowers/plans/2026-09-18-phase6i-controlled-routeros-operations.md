@@ -1543,3 +1543,21 @@ This audit preserves all twelve Â§8 preconditions. Task 2.5 resolves reconciliat
 - Database/schema result: no migration was created; existing Task 2.x schema was reused. Test execution remained on PostgreSQL `cosmiclink_test`.
 - Zero-network evidence: no RouterOS connection, RouterOS read/write, configuration change, permission change, credential transmission, Go mutation request, `NetworkDriver` invocation, operation-log creation by lifecycle authorization, or real mutation-provider activation was added. `NETWORK_MUTATIONS_ENABLED` remains false in committed configuration and `NETWORK_MUTATION_PROVIDER` remains fake; real RouterOS mutation remains unreachable.
 - Commit boundary: `Phase 6I Task 3 local managed authorization lifecycle`.
+
+## Task 4.1 Recovery Evidence — 2026-09-20
+
+- Recovery classification: B; recovered after the interrupted power-outage worktree without reset, restore, checkout, stash, or wholesale discard.
+- Required base preserved: `e2ddcca43c3766c6cd2acb7d0f0e0d41970eb040` on `phase-6i-controlled-routeros-operations`.
+- Removed exactly two confirmed malformed root-level pager/shell artifacts; no project source or `tests/Feature/Phase6ITask41ControlledOperationAuthorizationTest.php` was deleted.
+- Repaired `tests/Feature/Phase6ITask275OperationSafetyTest.php` by removing literal `` `r`n `` fragments and restoring imports, setup, and regression structure.
+- Controlled service boundary: trusted actor and current database `NetworkAccount` reload precede the mandatory `ControlledNetworkOperationGate`; denied requests return before reservation, driver dispatch, simulated controlled execution, or Go HTTP.
+- Gate dependency: `ControlledNetworkOperationGate` is a mandatory constructor dependency; no nullable fallback or second authorization implementation remains.
+- Canonical scope is exact Task 3 scope: `ENABLE_PPPOE`, `DISABLE_PPPOE`, `DISCONNECT_SESSION`; altered/extended/client-defined scope is denied.
+- Current-account consistency: reloaded account supplies gate input, router/username target, reservation account reference, account safety scope, idempotency digest inputs, and controlled driver dispatch context.
+- Lifecycle authority: `DISCOVERED` and `ADOPTED` controlled requests deny; `MANAGED` still requires the full existing safety gate. Legacy `adopted_from_discovery` is not used as controlled-operation authorization. Billing/import safety remains isolated and retains its historical metadata rule; MANAGED does not grant billing policy.
+- Stale-request invariant verified: a stale MANAGED model after database revocation to ADOPTED is denied with zero driver activity and zero reservation.
+- Kill-switch ordering verified: `NETWORK_MUTATIONS_ENABLED=false` denies before reservation and driver; committed/default provider remains `fake`.
+- Exact delegation verified for all three controlled operations with per-operation gate expectations: 9 Task 4.1 tests, including no-reservation/no-driver/no-Go denial, Http fake assertions, current reload consistency, lifecycle denial, canonical scope, non-controlled regressions, and metadata non-bypass.
+- Verification counts: focused authorization/lifecycle/billing/adoption set 57 tests / 242 assertions; full Laravel suite 216 passed, 3 skipped, 1153 assertions.
+- Additional checks: Pint clean (228 files), PHP syntax clean, `git diff --check` clean, Go build/vet/test/gofmt clean.
+- Go diff: none. No migration created. No RouterOS activity: zero customer mutations, zero MikroTik connections added, zero RouterOS writes, no configuration or permissions changes, no credentials created or sent Laravel to Go.
