@@ -12,6 +12,7 @@ final readonly class FutureMutationContext
             'tenant_ref' => $data['tenant_ref'] ?? null,
             'router_ref' => $data['router_ref'] ?? null,
             'agent_ref' => $data['agent_ref'] ?? null,
+            'installation_id' => $data['installation_id'] ?? null,
             'credential_ref' => $data['credential_ref'] ?? null,
             'purpose' => $data['credential_purpose'] ?? null,
             'version' => $data['credential_version'] ?? null,

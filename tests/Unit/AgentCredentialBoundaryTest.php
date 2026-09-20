@@ -50,7 +50,7 @@ class AgentCredentialBoundaryTest extends TestCase
         $reference = CredentialReference::fromArray($this->reference('OPERATOR'));
 
         $this->expectException(CredentialReferenceException::class);
-        $reference->assertScope('tenant-2', 'router-1', 'agent-1');
+        $reference->assertScope('tenant-2', 'router-1', 'agent-1', 'installation-1');
     }
 
     public function test_future_mutation_context_has_only_reference_and_authorization_fields(): void
@@ -58,6 +58,7 @@ class AgentCredentialBoundaryTest extends TestCase
         $context = FutureMutationContext::fromArray([
             'tenant_ref' => 'tenant-1',
             'agent_ref' => 'agent-1',
+            'installation_id' => 'installation-1',
             'router_ref' => 'router-1',
             'credential_ref' => 'router-1/operator/v1',
             'credential_purpose' => 'OPERATOR',
@@ -83,6 +84,7 @@ class AgentCredentialBoundaryTest extends TestCase
             'tenant_ref' => 'tenant-1',
             'router_ref' => 'router-1',
             'agent_ref' => 'agent-1',
+            'installation_id' => 'installation-1',
             'credential_ref' => 'router-1/'.strtolower($purpose).'/v1',
             'purpose' => $purpose,
             'version' => 1,

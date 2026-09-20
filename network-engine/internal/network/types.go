@@ -9,6 +9,7 @@ type Request struct {
 	TenantRef         string         `json:"tenant_ref"`
 	RouterRef         string         `json:"router_ref"`
 	AgentRef          string         `json:"agent_ref,omitempty"`
+	InstallationID    string         `json:"installation_id,omitempty"`
 	CredentialRef     string         `json:"credential_ref,omitempty"`
 	CredentialPurpose string         `json:"credential_purpose,omitempty"`
 	CredentialVersion int            `json:"credential_version,omitempty"`

@@ -10,9 +10,9 @@ import (
 
 type countingResolver struct{ calls int }
 
-func (r *countingResolver) Resolve(context.Context, credentials.Reference) (credentials.Credential, error) {
+func (r *countingResolver) Resolve(context.Context, credentials.Reference) (credentials.ResolvedCredential, error) {
 	r.calls++
-	return credentials.Credential{}, nil
+	return credentials.ResolvedCredential{}, nil
 }
 
 func TestFakeMutationProviderDoesNotResolveCredentials(t *testing.T) {

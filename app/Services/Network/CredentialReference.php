@@ -8,6 +8,7 @@ final readonly class CredentialReference
         public string $tenantRef,
         public string $routerRef,
         public string $agentRef,
+        public string $installationId,
         public string $credentialRef,
         public CredentialPurpose $purpose,
         public int $version,
@@ -18,6 +19,7 @@ final readonly class CredentialReference
         $tenantRef = self::ref($data['tenant_ref'] ?? null);
         $routerRef = self::ref($data['router_ref'] ?? null);
         $agentRef = self::ref($data['agent_ref'] ?? null);
+        $installationId = self::ref($data['installation_id'] ?? null);
         $credentialRef = self::ref($data['credential_ref'] ?? null);
         $purpose = is_string($data['purpose'] ?? null) ? CredentialPurpose::tryFrom($data['purpose']) : null;
         $version = $data['version'] ?? null;
@@ -26,12 +28,15 @@ final readonly class CredentialReference
             throw CredentialReferenceException::invalid();
         }
 
-        return new self($tenantRef, $routerRef, $agentRef, $credentialRef, $purpose, $version);
+        return new self($tenantRef, $routerRef, $agentRef, $installationId, $credentialRef, $purpose, $version);
     }
 
-    public function assertScope(string $tenantRef, string $routerRef, string $agentRef): void
+    public function assertScope(string $tenantRef, string $routerRef, string $agentRef, string $installationId): void
     {
         if ($this->tenantRef !== $tenantRef || $this->routerRef !== $routerRef || $this->agentRef !== $agentRef) {
+            throw CredentialReferenceException::invalid();
+        }
+        if ($this->installationId !== $installationId) {
             throw CredentialReferenceException::invalid();
         }
     }
@@ -42,6 +47,7 @@ final readonly class CredentialReference
             'tenant_ref' => $this->tenantRef,
             'router_ref' => $this->routerRef,
             'agent_ref' => $this->agentRef,
+            'installation_id' => $this->installationId,
             'credential_ref' => $this->credentialRef,
             'purpose' => $this->purpose->value,
             'version' => $this->version,
