@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"cosmiclink/network-engine/internal/credentials"
 	"cosmiclink/network-engine/internal/network"
 )
 
@@ -38,17 +39,29 @@ type claimResponse struct {
 }
 
 type Agent struct {
-	config        Config
-	provider      network.DiscoveryProvider
-	client        *http.Client
-	logger        *slog.Logger
-	started       time.Time
-	lastHeartbeat time.Time
+	config             Config
+	provider           network.DiscoveryProvider
+	credentialResolver *AgentCredentialResolver
+	client             *http.Client
+	logger             *slog.Logger
+	started            time.Time
+	lastHeartbeat      time.Time
 }
 
 var ErrAuthentication = errors.New("agent authentication rejected")
 
 func New(config Config, provider network.DiscoveryProvider, logger *slog.Logger) *Agent {
+	return newAgent(config, provider, nil, logger)
+}
+
+// NewWithCredentialResolver enables the local reference-only credential seam.
+// It does not alter legacy discovery jobs or connect the resolved credential to
+// any network/provider operation.
+func NewWithCredentialResolver(config Config, provider network.DiscoveryProvider, resolver *AgentCredentialResolver, logger *slog.Logger) *Agent {
+	return newAgent(config, provider, resolver, logger)
+}
+
+func newAgent(config Config, provider network.DiscoveryProvider, resolver *AgentCredentialResolver, logger *slog.Logger) *Agent {
 	if config.Timeout <= 0 {
 		config.Timeout = 10 * time.Second
 	}
@@ -64,7 +77,21 @@ func New(config Config, provider network.DiscoveryProvider, logger *slog.Logger)
 	if config.MaxBackoff <= 0 {
 		config.MaxBackoff = time.Minute
 	}
-	return &Agent{config: config, provider: provider, client: &http.Client{Timeout: config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, logger: logger, started: time.Now()}
+	return &Agent{config: config, provider: provider, credentialResolver: resolver, client: &http.Client{Timeout: config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, logger: logger, started: time.Now()}
+}
+
+// ResolveCredential consumes a reference-only credential job through the
+// local encrypted store and returns only synthetic safe evidence.
+func (a *Agent) ResolveCredential(ctx context.Context, job CredentialResolutionJob) (CredentialResolutionEvidence, error) {
+	if a == nil || a.credentialResolver == nil {
+		return CredentialResolutionEvidence{}, credentials.ErrCredentialReferenceInvalid
+	}
+	resolved, err := a.credentialResolver.ResolveJob(ctx, job)
+	if err != nil {
+		return CredentialResolutionEvidence{}, err
+	}
+	ref := credentials.Reference{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: credentials.InstallationIdentity(job.InstallationID), CredentialRef: job.CredentialRef, Purpose: credentials.Purpose(job.CredentialPurpose), Version: job.CredentialVersion}
+	return ConsumeResolvedCredential(ref, resolved)
 }
 
 func (a *Agent) heartbeat(ctx context.Context) error {
