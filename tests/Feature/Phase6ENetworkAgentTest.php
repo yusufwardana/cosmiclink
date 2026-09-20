@@ -49,6 +49,37 @@ class Phase6ENetworkAgentTest extends TestCase
         $this->assertStringNotContainsString('router-secret', json_encode($job->fresh()->toArray()));
     }
 
+    public function test_migrated_discovery_job_claim_contains_no_raw_router_credentials(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $user = User::factory()->for($tenant)->create();
+        $router = Router::factory()->for($tenant)->create();
+        $router->setPassword('legacy-router-secret');
+        $router->save();
+        [$agent, $token] = app(NetworkAgentService::class)->enroll($tenant, 'Migrated Agent');
+        $agent = app(NetworkAgentService::class)->heartbeat($agent, ['version' => '0.6.0', 'capabilities' => ['discovery.routeros.readonly', 'jobs.lease.v1']]);
+        $router->forceFill([
+            'observer_agent_ref' => $agent->identifier,
+            'observer_installation_id' => 'installation-1',
+            'observer_credential_ref' => 'cred-1',
+            'observer_credential_purpose' => 'OBSERVER',
+            'observer_credential_version' => 1,
+            'observer_credential_status' => 'ACTIVE',
+            'observer_migration_state' => 'LOCAL_OBSERVER_ACTIVE',
+        ])->save();
+        $job = app(NetworkAgentService::class)->createDiscoveryJob($router, $agent, $user);
+
+        $claim = $this->withToken($token)->postJson('/api/v1/agent/jobs/claim')->assertOk()->json();
+
+        $encoded = json_encode($claim);
+        $this->assertStringNotContainsString('legacy-router-secret', $encoded);
+        $this->assertStringNotContainsString('password', strtolower($encoded));
+        $this->assertSame((string) $agent->identifier, $claim['job']['agent_ref']);
+        $this->assertSame((string) $router->tenant_id, $claim['job']['tenant_ref']);
+        $this->assertSame((string) $router->id, $claim['job']['router_ref']);
+        $this->assertSame($job->id, $claim['job']['id']);
+    }
+
     public function test_invalid_or_cross_tenant_agent_cannot_claim_job_and_a_job_is_claimed_once(): void
     {
         $tenantA = Tenant::factory()->create();

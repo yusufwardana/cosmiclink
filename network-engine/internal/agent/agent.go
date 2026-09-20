@@ -28,13 +28,25 @@ type Config struct {
 	PollInterval, HeartbeatInterval, MaxBackoff time.Duration
 }
 type Job struct {
-	ID             int64                        `json:"id"`
-	Type           string                       `json:"type"`
-	RouterRef      string                       `json:"router_ref"`
-	Connection     *network.DiscoveryConnection `json:"connection,omitempty"`
-	Attempt        int                          `json:"attempt"`
-	Fence          string                       `json:"fence"`
-	RenewalSeconds int                          `json:"renewal_seconds"`
+	ID                    int64                        `json:"id"`
+	Type                  string                       `json:"type"`
+	RouterRef             string                       `json:"router_ref"`
+	Connection            *network.DiscoveryConnection `json:"connection,omitempty"`
+	TenantRef             string                       `json:"tenant_ref"`
+	AgentRef              string                       `json:"agent_ref"`
+	InstallationID        string                       `json:"installation_id,omitempty"`
+	CredentialRef         string                       `json:"credential_ref,omitempty"`
+	CredentialPurpose     string                       `json:"credential_purpose,omitempty"`
+	CredentialVersion     int                          `json:"credential_version,omitempty"`
+	Host                  string                       `json:"host,omitempty"`
+	Port                  int                          `json:"port,omitempty"`
+	Transport             string                       `json:"transport,omitempty"`
+	ConnectTimeoutSeconds int                          `json:"connect_timeout_seconds,omitempty"`
+	ReadTimeoutSeconds    int                          `json:"read_timeout_seconds,omitempty"`
+	InsecureTLS           bool                         `json:"insecure_tls,omitempty"`
+	Attempt               int                          `json:"attempt"`
+	Fence                 string                       `json:"fence"`
+	RenewalSeconds        int                          `json:"renewal_seconds"`
 }
 type claimResponse struct {
 	Job *Job `json:"job"`
@@ -45,7 +57,7 @@ type Agent struct {
 	bootstrap          *BootstrapState
 	bootstrapErr       error
 	provider           network.DiscoveryProvider
-	credentialResolver *AgentCredentialResolver
+	credentialResolver JobResolver
 	client             *http.Client
 	logger             *slog.Logger
 	started            time.Time
@@ -61,11 +73,11 @@ func New(config Config, provider network.DiscoveryProvider, logger *slog.Logger)
 // NewWithCredentialResolver enables the local reference-only credential seam.
 // It does not alter legacy discovery jobs or connect the resolved credential to
 // any network/provider operation.
-func NewWithCredentialResolver(config Config, provider network.DiscoveryProvider, resolver *AgentCredentialResolver, logger *slog.Logger) *Agent {
+func NewWithCredentialResolver(config Config, provider network.DiscoveryProvider, resolver JobResolver, logger *slog.Logger) *Agent {
 	return newAgent(config, provider, resolver, logger)
 }
 
-func newAgent(config Config, provider network.DiscoveryProvider, resolver *AgentCredentialResolver, logger *slog.Logger) *Agent {
+func newAgent(config Config, provider network.DiscoveryProvider, resolver JobResolver, logger *slog.Logger) *Agent {
 	if config.Timeout <= 0 {
 		config.Timeout = 10 * time.Second
 	}
@@ -103,6 +115,29 @@ func (a *Agent) ResolveCredential(ctx context.Context, job CredentialResolutionJ
 	}
 	ref := credentials.Reference{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: credentials.InstallationIdentity(job.InstallationID), CredentialRef: job.CredentialRef, Purpose: credentials.Purpose(job.CredentialPurpose), Version: job.CredentialVersion}
 	return ConsumeResolvedCredential(ref, resolved)
+}
+
+// SyncObserverMetadata sends metadata-only evidence to Core over the existing
+// authenticated Agent relationship. It deliberately accepts only OBSERVER
+// metadata and has no secret-bearing fields.
+func (a *Agent) SyncObserverMetadata(ctx context.Context, metadata credentials.CredentialMetadata) error {
+	if a == nil || metadata.Purpose != credentials.PurposeObserver || metadata.Version < 1 || metadata.CredentialRef == "" {
+		return credentials.ErrCredentialReferenceInvalid
+	}
+	if a.bootstrap == nil || a.bootstrap.AgentRef() == "" {
+		return ErrAgentBootstrapRequired
+	}
+	payload := map[string]any{
+		"tenant_ref":      string(metadata.TenantRef),
+		"router_ref":      string(metadata.RouterRef),
+		"agent_ref":       a.bootstrap.AgentRef(),
+		"installation_id": string(metadata.InstallationID),
+		"credential_ref":  metadata.CredentialRef,
+		"purpose":         string(metadata.Purpose),
+		"version":         metadata.Version,
+		"status":          string(metadata.Status),
+	}
+	return a.requestStrict(ctx, "/api/v1/agent/observer-references/sync", payload, nil)
 }
 
 func (a *Agent) heartbeat(ctx context.Context) error {
@@ -250,7 +285,18 @@ func (a *Agent) executeResult(ctx context.Context, job Job) (map[string]any, err
 		return nil, errors.New("unsupported network agent job type")
 	}
 	started := time.Now()
-	result := a.provider.Discover(ctx, network.DiscoveryRequest{RouterRef: job.RouterRef, Connection: job.Connection})
+	request := network.DiscoveryRequest{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: job.InstallationID, CredentialRef: job.CredentialRef, CredentialPurpose: job.CredentialPurpose, CredentialVersion: job.CredentialVersion, Host: job.Host, Port: job.Port, Transport: job.Transport, ConnectTimeoutSeconds: job.ConnectTimeoutSeconds, ReadTimeoutSeconds: job.ReadTimeoutSeconds, InsecureTLS: job.InsecureTLS, Connection: job.Connection}
+	if job.CredentialRef != "" {
+		if a.credentialResolver == nil || job.CredentialPurpose != string(credentials.PurposeObserver) || job.CredentialVersion < 1 {
+			return map[string]any{"success": false, "provider": a.provider.Name(), "code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid."}, nil
+		}
+		resolved, err := a.credentialResolver.ResolveJob(ctx, CredentialResolutionJob{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: job.InstallationID, CredentialRef: job.CredentialRef, CredentialPurpose: job.CredentialPurpose, CredentialVersion: job.CredentialVersion})
+		if err != nil {
+			return map[string]any{"success": false, "provider": a.provider.Name(), "code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed."}, nil
+		}
+		request.Connection = &network.DiscoveryConnection{Host: job.Host, Port: job.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: job.Transport, ConnectTimeoutSeconds: job.ConnectTimeoutSeconds, ReadTimeoutSeconds: job.ReadTimeoutSeconds, InsecureTLS: job.InsecureTLS}
+	}
+	result := a.provider.Discover(ctx, request)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

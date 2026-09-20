@@ -123,7 +123,18 @@ class NetworkAgentService
             $this->event($agent, 'JOB_CLAIMED', $job);
             $router = Router::query()->where('id', $job->router_id)->where('tenant_id', $agent->tenant_id)->firstOrFail();
 
-            return ['job' => ['id' => $job->id, 'type' => $job->job_type, 'attempt' => $job->attempt, 'fence' => $job->fence, 'renewal_seconds' => config('network_agents.renewal_seconds'), 'lease_expires_at' => $job->lease_expires_at->toISOString(), 'router_ref' => (string) $router->id, 'connection' => ['host' => $router->host, 'port' => (int) $router->api_port, 'username' => $router->username, 'password' => $router->password(), 'transport' => config('network.routeros.transport'), 'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'), 'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'), 'insecure_tls' => (bool) config('network.routeros.insecure_tls')]]];
+            $jobPayload = ['id' => $job->id, 'type' => $job->job_type, 'attempt' => $job->attempt, 'fence' => $job->fence, 'renewal_seconds' => config('network_agents.renewal_seconds'), 'lease_expires_at' => $job->lease_expires_at->toISOString(), 'tenant_ref' => (string) $router->tenant_id, 'router_ref' => (string) $router->id, 'agent_ref' => (string) $agent->identifier];
+            if ($router->observer_migration_state === 'LOCAL_OBSERVER_ACTIVE') {
+                $reference = CredentialReference::fromRouter($router);
+                if ($reference->purpose !== CredentialPurpose::OBSERVER) {
+                    abort(422);
+                }
+                $jobPayload += ['credential_ref' => $reference->credentialRef, 'credential_purpose' => $reference->purpose->value, 'credential_version' => $reference->version, 'installation_id' => $reference->installationId];
+            } else {
+                $jobPayload['connection'] = ['host' => $router->host, 'port' => (int) $router->api_port, 'username' => $router->username, 'password' => $router->password(), 'transport' => config('network.routeros.transport'), 'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'), 'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'), 'insecure_tls' => (bool) config('network.routeros.insecure_tls')];
+            }
+
+            return ['job' => $jobPayload];
         });
     }
 

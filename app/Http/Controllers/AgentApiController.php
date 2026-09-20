@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\NetworkAgentJob;
 use App\Services\Network\NetworkAgentService;
 use App\Services\Network\NetworkDiscoveryService;
+use App\Services\Network\ObserverReferenceService;
 use Illuminate\Http\Request;
 
 class AgentApiController extends Controller
@@ -41,6 +42,25 @@ class AgentApiController extends Controller
         $job = $agents->renew($agent, $job, $data);
 
         return response()->json(['id' => $job->id, 'lease_expires_at' => $job->lease_expires_at]);
+    }
+
+    public function syncObserverReference(Request $request, NetworkAgentService $agents, ObserverReferenceService $references)
+    {
+        $agent = $this->agent($request, $agents);
+        abort_unless(array_diff(array_keys($request->all()), ['tenant_ref', 'router_ref', 'agent_ref', 'installation_id', 'credential_ref', 'purpose', 'version', 'status']) === [], 422);
+        $payload = $request->validate([
+            'tenant_ref' => ['required', 'string', 'max:191'],
+            'router_ref' => ['required', 'string', 'max:191'],
+            'agent_ref' => ['required', 'string', 'max:191'],
+            'installation_id' => ['required', 'string', 'max:191'],
+            'credential_ref' => ['required', 'string', 'max:191'],
+            'purpose' => ['required', 'in:OBSERVER'],
+            'version' => ['required', 'integer', 'min:1'],
+            'status' => ['required', 'in:ACTIVE,REVOKED,RETIRED'],
+        ]);
+        $router = $references->sync($agent, $payload);
+
+        return response()->json(['agent_ref' => $agent->identifier, 'router_ref' => (string) $router->id, 'credential_ref' => $router->observer_credential_ref, 'purpose' => $router->observer_credential_purpose, 'version' => $router->observer_credential_version, 'status' => $router->observer_credential_status, 'migration_state' => $router->observer_migration_state]);
     }
 
     private function agent(Request $request, NetworkAgentService $agents)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"cosmiclink/network-engine/internal/agent"
 	"cosmiclink/network-engine/internal/api"
 	"cosmiclink/network-engine/internal/config"
 	"cosmiclink/network-engine/internal/monitoring"
@@ -60,7 +61,12 @@ func buildHandler(loaded config.Config, logger *slog.Logger) (http.Handler, func
 	if err != nil {
 		return nil, nil, err
 	}
-	server := api.NewWithMutationProvider(simulation, mutation, discovery, monitor, loaded.Token, logger)
+	var resolver *agent.LazyProductionResolver
+	if loaded.AgentDataDir != "" {
+		resolver = agent.NewLazyProductionResolver(loaded.AgentDataDir)
+	}
+	server := api.NewWithCredentialResolver(simulation, discovery, monitor, resolver, loaded.Token, logger)
+	server.SetMutationProvider(mutation)
 	return server.Handler(), func() {}, nil
 }
 

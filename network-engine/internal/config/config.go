@@ -13,6 +13,7 @@ type Config struct {
 	MonitoringProvider       string
 	MutationProvider         string
 	AllowInsecureRouterOSTLS bool
+	AgentDataDir             string
 }
 
 // FromEnvironment loads engine settings. Phase 6I adds NETWORK_MUTATION_PROVIDER
@@ -27,6 +28,7 @@ func FromEnvironment() (Config, error) {
 		MonitoringProvider:       valueOrDefault("MONITORING_PROVIDER", "fake"),
 		MutationProvider:         valueOrDefault("NETWORK_MUTATION_PROVIDER", "fake"),
 		AllowInsecureRouterOSTLS: os.Getenv("APP_ENV") == "local" && boolValue("GO_NETWORK_ENGINE_ALLOW_INSECURE_ROUTEROS_TLS"),
+		AgentDataDir:             os.Getenv("COSMICLINK_AGENT_DATA_DIR"),
 	}
 	if config.Token == "" {
 		return Config{}, fmt.Errorf("GO_NETWORK_ENGINE_TOKEN must be configured")

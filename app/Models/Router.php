@@ -10,11 +10,11 @@ class Router extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'name', 'description', 'host', 'api_port', 'username', 'status', 'driver', 'last_seen_at', 'monitoring_state'];
+    protected $fillable = ['tenant_id', 'name', 'description', 'host', 'api_port', 'username', 'status', 'driver', 'last_seen_at', 'monitoring_state', 'observer_agent_ref', 'observer_installation_id', 'observer_credential_ref', 'observer_credential_purpose', 'observer_credential_version', 'observer_credential_status', 'observer_migration_state', 'observer_reference_bound_at', 'observer_reference_synced_at', 'observer_synced_agent_ref', 'observer_synced_installation_id', 'observer_synced_credential_ref', 'observer_synced_credential_purpose', 'observer_synced_credential_version', 'observer_synced_credential_status'];
 
     protected $hidden = ['encrypted_credentials'];
 
-    protected $casts = ['last_seen_at' => 'datetime'];
+    protected $casts = ['last_seen_at' => 'datetime', 'observer_reference_bound_at' => 'datetime', 'observer_reference_synced_at' => 'datetime', 'observer_credential_version' => 'integer', 'observer_synced_credential_version' => 'integer'];
 
     public function setPassword(string $password): void
     {

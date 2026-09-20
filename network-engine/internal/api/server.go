@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"cosmiclink/network-engine/internal/credentials"
 	"cosmiclink/network-engine/internal/monitoring"
 	"cosmiclink/network-engine/internal/network"
 )
@@ -25,6 +26,7 @@ type Server struct {
 	logger      *slog.Logger
 	idempotency *idempotencyStore
 	monitoring  monitoring.Provider
+	resolver    credentials.Resolver
 }
 
 func New(provider network.Provider, discovery network.DiscoveryProvider, token string, logger *slog.Logger) *Server {
@@ -45,6 +47,16 @@ func MutationProviderFrom(provider network.Provider) network.MutationProvider {
 func NewWithMonitoring(provider network.Provider, discovery network.DiscoveryProvider, monitor monitoring.Provider, token string, logger *slog.Logger) *Server {
 	server := NewWithMutationProvider(provider, MutationProviderFrom(provider), discovery, monitor, token, logger)
 	return server
+}
+
+func NewWithCredentialResolver(provider network.Provider, discovery network.DiscoveryProvider, monitor monitoring.Provider, resolver credentials.Resolver, token string, logger *slog.Logger) *Server {
+	server := NewWithMonitoring(provider, discovery, monitor, token, logger)
+	server.resolver = resolver
+	return server
+}
+
+func (server *Server) SetMutationProvider(mutation network.MutationProvider) {
+	server.mutation = mutation
 }
 
 // NewWithMutationProvider is the Phase 6I composition entry point. The legacy
@@ -83,7 +95,20 @@ func (server *Server) Handler() http.Handler {
 }
 
 type monitoringRequest struct {
-	Router monitoring.RouterTarget `json:"router"`
+	Router                monitoring.RouterTarget `json:"router"`
+	TenantRef             string                  `json:"tenant_ref,omitempty"`
+	RouterRef             string                  `json:"router_ref,omitempty"`
+	AgentRef              string                  `json:"agent_ref,omitempty"`
+	InstallationID        string                  `json:"installation_id,omitempty"`
+	CredentialRef         string                  `json:"credential_ref,omitempty"`
+	CredentialPurpose     string                  `json:"credential_purpose,omitempty"`
+	CredentialVersion     int                     `json:"credential_version,omitempty"`
+	Host                  string                  `json:"host,omitempty"`
+	Port                  int                     `json:"port,omitempty"`
+	Transport             string                  `json:"transport,omitempty"`
+	ConnectTimeoutSeconds int                     `json:"connect_timeout_seconds,omitempty"`
+	ReadTimeoutSeconds    int                     `json:"read_timeout_seconds,omitempty"`
+	InsecureTLS           bool                    `json:"insecure_tls,omitempty"`
 }
 
 func (server *Server) monitoringProtected(writer http.ResponseWriter, request *http.Request) {
@@ -100,9 +125,21 @@ func (server *Server) monitoringProtected(writer http.ResponseWriter, request *h
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	var command monitoringRequest
-	if err := decoder.Decode(&command); err != nil || command.Router.Host == "" {
+	if err := decoder.Decode(&command); err != nil || (command.Router.Host == "" && command.CredentialRef == "") {
 		writeJSON(writer, http.StatusBadRequest, map[string]any{"reachable": false, "failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid monitoring request"}})
 		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
 	}
 	snapshot, err := server.monitoring.Collect(request.Context(), command.Router)
 	if err != nil {
@@ -151,6 +188,18 @@ func (server *Server) discoveryProtected(writer http.ResponseWriter, request *ht
 	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || command.TenantRef == "" || command.RouterRef == "" || command.RouterRef != request.PathValue("router_ref") {
 		writeJSON(writer, http.StatusBadRequest, network.DiscoveryResult{Success: false, Provider: server.discovery.Name(), RouterRef: command.RouterRef, Code: "INVALID_REQUEST", Message: "Invalid discovery request"})
 		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, network.DiscoveryResult{Success: false, Provider: server.discovery.Name(), RouterRef: command.RouterRef, Code: "CREDENTIAL_REFERENCE_INVALID", Message: "Observer credential reference is invalid"})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, network.DiscoveryResult{Success: false, Provider: server.discovery.Name(), RouterRef: command.RouterRef, Code: "CREDENTIAL_RESOLUTION_FAILED", Message: "Observer credential resolution failed"})
+			return
+		}
+		command.Connection = &network.DiscoveryConnection{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
 	}
 	result := server.discovery.Discover(request.Context(), command)
 	if result.Provider == "" {

@@ -43,6 +43,26 @@ class GoNetworkDiscoveryClient implements NetworkDiscoveryClient
     private function payload(Router $router): array
     {
         $payload = ['tenant_ref' => (string) $router->tenant_id, 'router_ref' => (string) $router->id];
+        if ($router->observer_migration_state === 'LOCAL_OBSERVER_ACTIVE') {
+            $reference = CredentialReference::fromRouter($router);
+            if ($reference->purpose !== CredentialPurpose::OBSERVER) {
+                throw CredentialReferenceException::invalid();
+            }
+
+            return array_merge($payload, [
+                'agent_ref' => $reference->agentRef,
+                'installation_id' => $reference->installationId,
+                'credential_ref' => $reference->credentialRef,
+                'credential_purpose' => $reference->purpose->value,
+                'credential_version' => $reference->version,
+                'host' => $router->host,
+                'port' => (int) $router->api_port,
+                'transport' => config('network.routeros.transport'),
+                'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
+                'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
+                'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
+            ]);
+        }
         if (config('network.discovery_provider') === 'routeros') {
             if ((bool) config('network.routeros.insecure_tls') && ! app()->environment(['local', 'testing'])) {
                 throw new LogicException('Insecure RouterOS TLS is allowed only in local or testing environments.');

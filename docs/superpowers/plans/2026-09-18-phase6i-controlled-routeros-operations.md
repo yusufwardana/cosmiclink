@@ -1842,3 +1842,94 @@ This audit preserves all twelve §8 preconditions. Task 2.5 resolves reconciliat
 - Scope exclusions verified by inspection: no IPC, credential enrollment, CLI secret input, observer migration, Core schema/API change, RouterOS connection, mutation provider, or network write was added. `NETWORK_MUTATIONS_ENABLED` remains false by default and `NETWORK_MUTATION_PROVIDER` remains fake.
 - Verification: focused installation/store tests, full Go `go test ./...`, `gofmt`, `go build ./...`, `go vet ./...`, `go mod verify`, Linux `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`, full Laravel `php artisan test`, Pint `--test`, PHP syntax checks, and `git diff --check` passed. `go test -race ./...` was attempted and unavailable because the environment requires cgo/GCC, which is not available.
 - Zero-activity evidence: real operator credential created: no; real observer credential migrated: no; real MikroTik connections: `0`; real MikroTik writes: `0`; MikroTik configuration changed: no; MikroTik permissions changed: no.
+
+## 56. Observer Migration + Core Reference Metadata Synchronization Evidence (2026-09-20)
+
+### Ownership model
+
+- Agent owns the OBSERVER secret, encrypted credential payload, exact version lifecycle, local ACTIVE/REVOKED/RETIRED truth, and installation binding.
+- Core owns Router/business relationship, selected Agent, synchronized metadata evidence, selected credential reference, and orchestration intent.
+- Core never stores a RouterOS password, decrypted secret, encrypted vault payload, ciphertext, nonce, protected key, or DPAPI material.
+
+### Core metadata schema and synchronization contract
+
+- Added typed Router metadata for selected observer reference: `observer_agent_ref`, `observer_installation_id`, `observer_credential_ref`, `observer_credential_purpose`, `observer_credential_version`, `observer_credential_status`, `observer_migration_state`, `observer_reference_bound_at`, and `observer_reference_synced_at`.
+- Added separate synchronized evidence fields so v2 metadata sync cannot silently switch a selected v1 reference: `observer_synced_agent_ref`, `observer_synced_installation_id`, `observer_synced_credential_ref`, `observer_synced_credential_purpose`, `observer_synced_credential_version`, and `observer_synced_credential_status`.
+- Added authenticated `POST /api/v1/agent/observer-references/sync` using the existing bearer Agent relationship.
+- Typed fields only; unknown fields are rejected before validation. Required purpose is `OBSERVER`; version is positive; credential reference format is validated; tenant, router, and authenticated Agent ownership are checked.
+- Metadata-only audit evidence uses `OBSERVER_REFERENCE_SYNCED`, `OBSERVER_REFERENCE_SWITCHED`, and `OBSERVER_LOCAL_CUTOVER` with safe identifiers only.
+
+### Secret-exclusion evidence
+
+- Laravel sync tests reject `password` and `OPERATOR` payloads.
+- Agent sync client sends only tenant/router/agent/installation/reference/purpose/version/status fields.
+- Discovery and monitoring migrated payload tests assert no password field and no password text in the request body.
+- Strict Go decoding rejects secret-bearing unexpected fields.
+- No Core response, audit event, discovery result, monitoring result, or persisted migrated job contains a secret.
+
+### Discovery and monitoring resolution path
+
+```text
+Core typed reference metadata
+  -> authenticated Agent/Core request
+  -> Go typed reference decoder
+  -> exact local AgentCredentialResolver / LazyProductionResolver
+  -> existing encrypted SQLite vault
+  -> transient ResolvedCredential
+  -> existing read-only DiscoveryProvider / MonitoringProvider
+```
+
+- The local resolver validates installation binding, Agent binding, purpose, exact credential reference, and exact positive version.
+- `OBSERVER` is accepted; `OPERATOR`, unknown purpose, missing purpose, revoked, retired, missing, corrupt, mismatched, and stale local references fail closed.
+- No local resolution failure falls back to a Core raw password after `LOCAL_OBSERVER_ACTIVE`.
+- RouterOS read allowlists are unchanged. No RouterOS write path was added or enabled.
+
+### Migration states and cutover semantics
+
+- `LEGACY`: bounded rollback path; existing raw credential support remains only for explicitly non-migrated routers.
+- `LOCAL_OBSERVER_READY`: local observer reference bound, but cutover has not occurred.
+- `REFERENCE_SYNCED`: Core has synchronized metadata evidence; this does not imply local readiness or cutover.
+- `LOCAL_OBSERVER_ACTIVE`: exact local reference is required for discovery and monitoring; raw credential delivery is not emitted for the migrated path.
+- `LEGACY_RETIRABLE`: conceptual safe-retirement state; destructive legacy credential deletion is out of scope for this milestone.
+- Cutover requires synchronized evidence matching the selected reference, ACTIVE status, exact version, and explicit activation. No automatic cutover occurs merely because a reference exists.
+
+### Rotation and revocation behavior
+
+- Local rotation creates a new exact local version and does not auto-switch Core.
+- Syncing v2 updates synchronized evidence only; selected v1 remains active until an explicit reference switch.
+- Explicit switch validates tenant, router, Agent, OBSERVER purpose, ACTIVE status, exact synchronized reference/version, and records `OBSERVER_REFERENCE_SWITCHED`.
+- Local revocation/retirement remains authoritative. Core stale metadata cannot override local restrictive state; next exact resolution fails closed. No automatic version substitution or fallback to v1 occurs.
+
+### Verification evidence
+
+- Focused migration/reference suite: `15 passed`, `83 assertions`.
+- Focused Agent/discovery/monitoring/authorization/billing regression suite: `58 passed`, `342 assertions`, `2 skipped` (pre-existing environment-dependent Go integration skips).
+- Full Laravel suite: `226 passed`, `1198 assertions`, `3 skipped`.
+- Pint: `PASS`, all `237` files clean after formatting.
+- PHP syntax checks: passed for all changed PHP files.
+- Go: `gofmt` passed; `go build ./...` passed; `go vet ./...` passed; `go test ./...` passed; `go mod verify` passed.
+- Linux cross-build: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` passed.
+- Windows build: `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` passed.
+- Race test: `go test -race ./...` attempted and unavailable because CGO/GCC is not installed (`-race requires cgo`).
+- `git diff --check`: passed.
+
+### Hardware acceptance and RouterOS safety
+
+- Real observer credential enrolled: NO.
+- Real read-only MikroTik acceptance: NOT EXERCISED; no safe hardware credential was explicitly provided.
+- Real MikroTik connections: 0.
+- Real MikroTik reads: 0.
+- Real MikroTik writes: 0.
+- RouterOS configuration changed: NO.
+- RouterOS permissions changed: NO.
+- Operator credential created or synchronized: NO.
+- `NETWORK_MUTATIONS_ENABLED` default remains `false`.
+- `NETWORK_MUTATION_PROVIDER` default remains `fake`; real mutation provider remains unreachable.
+
+### Milestone verdict
+
+`IMPLEMENTATION VERIFIED` for simulation, typed synchronization, exact local OBSERVER resolution, migration state/cutover semantics, discovery/monitoring integration, lifecycle security, and regression coverage. Hardware acceptance is explicitly `NOT EXERCISED`.
+
+### Next
+
+Controlled RouterOS Operations Integration.

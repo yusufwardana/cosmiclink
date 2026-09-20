@@ -39,9 +39,20 @@ type Provider interface {
 }
 
 type DiscoveryRequest struct {
-	TenantRef  string               `json:"tenant_ref"`
-	RouterRef  string               `json:"router_ref"`
-	Connection *DiscoveryConnection `json:"connection,omitempty"`
+	TenantRef             string               `json:"tenant_ref"`
+	RouterRef             string               `json:"router_ref"`
+	AgentRef              string               `json:"agent_ref,omitempty"`
+	InstallationID        string               `json:"installation_id,omitempty"`
+	CredentialRef         string               `json:"credential_ref,omitempty"`
+	CredentialPurpose     string               `json:"credential_purpose,omitempty"`
+	CredentialVersion     int                  `json:"credential_version,omitempty"`
+	Host                  string               `json:"host,omitempty"`
+	Port                  int                  `json:"port,omitempty"`
+	Transport             string               `json:"transport,omitempty"`
+	ConnectTimeoutSeconds int                  `json:"connect_timeout_seconds,omitempty"`
+	ReadTimeoutSeconds    int                  `json:"read_timeout_seconds,omitempty"`
+	InsecureTLS           bool                 `json:"insecure_tls,omitempty"`
+	Connection            *DiscoveryConnection `json:"connection,omitempty"`
 }
 
 // DiscoveryConnection exists only for the authenticated Laravel-to-Go request.

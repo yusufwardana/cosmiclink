@@ -11,16 +11,33 @@ class GoNetworkMonitoringClient
 {
     public function collect(Router $router): array
     {
-        $payload = ['router' => [
-            'host' => $router->host,
-            'port' => (int) $router->api_port,
-            'username' => $router->username,
-            'password' => $router->password(),
-            'transport' => config('network.routeros.transport'),
-            'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
-            'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
-            'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
-        ]];
+        if ($router->observer_migration_state === 'LOCAL_OBSERVER_ACTIVE') {
+            try {
+                $reference = CredentialReference::fromRouter($router);
+                if ($reference->purpose !== CredentialPurpose::OBSERVER) {
+                    throw CredentialReferenceException::invalid();
+                }
+                $payload = $reference->toArray();
+                $payload['credential_purpose'] = $payload['purpose'];
+                unset($payload['purpose']);
+                $payload['credential_version'] = $payload['version'];
+                unset($payload['version']);
+                $payload += ['host' => $router->host, 'port' => (int) $router->api_port, 'transport' => config('network.routeros.transport'), 'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'), 'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'), 'insecure_tls' => (bool) config('network.routeros.insecure_tls')];
+            } catch (CredentialReferenceException) {
+                return ['reachable' => false, 'failure' => ['code' => 'CREDENTIAL_REFERENCE_INVALID', 'message' => 'Observer credential reference is invalid.']];
+            }
+        } else {
+            $payload = ['router' => [
+                'host' => $router->host,
+                'port' => (int) $router->api_port,
+                'username' => $router->username,
+                'password' => $router->password(),
+                'transport' => config('network.routeros.transport'),
+                'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
+                'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
+                'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
+            ]];
+        }
 
         try {
             $response = Http::acceptJson()->asJson()

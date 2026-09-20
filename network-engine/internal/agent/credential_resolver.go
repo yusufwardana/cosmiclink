@@ -48,6 +48,43 @@ type AgentCredentialResolver struct {
 	installationID credentials.InstallationIdentity
 }
 
+type JobResolver interface {
+	ResolveJob(context.Context, CredentialResolutionJob) (credentials.ResolvedCredential, error)
+}
+
+// LazyProductionResolver opens the existing local vault only when a reference
+// is used. It never initializes installation state or creates a store.
+type LazyProductionResolver struct {
+	dataDir string
+}
+
+func NewLazyProductionResolver(dataDir string) *LazyProductionResolver {
+	return &LazyProductionResolver{dataDir: strings.TrimSpace(dataDir)}
+}
+
+func (r *LazyProductionResolver) Resolve(ctx context.Context, ref credentials.Reference) (credentials.ResolvedCredential, error) {
+	if r == nil || r.dataDir == "" {
+		return credentials.ResolvedCredential{}, credentials.ErrCredentialReferenceInvalid
+	}
+	installation, err := OpenInstallation(ctx, r.dataDir)
+	if err != nil {
+		return credentials.ResolvedCredential{}, err
+	}
+	if ref.InstallationID != installation.InstallationID || ref.AgentRef != installation.AgentRef {
+		return credentials.ResolvedCredential{}, credentials.ErrCredentialInstallationMismatch
+	}
+	store, err := OpenCredentialStore(ctx, r.dataDir)
+	if err != nil {
+		return credentials.ResolvedCredential{}, err
+	}
+	defer store.Close()
+	return store.Resolve(ctx, ref)
+}
+
+func (r *LazyProductionResolver) ResolveJob(ctx context.Context, job CredentialResolutionJob) (credentials.ResolvedCredential, error) {
+	return r.Resolve(ctx, credentials.Reference{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: credentials.InstallationIdentity(job.InstallationID), CredentialRef: job.CredentialRef, Purpose: credentials.Purpose(job.CredentialPurpose), Version: job.CredentialVersion})
+}
+
 func NewAgentCredentialResolver(store *credentials.Store, installationID credentials.InstallationIdentity) (*AgentCredentialResolver, error) {
 	if store == nil || !installationID.Valid() {
 		return nil, credentials.ErrCredentialReferenceInvalid

@@ -2,6 +2,8 @@
 
 namespace App\Services\Network;
 
+use App\Models\Router;
+
 final readonly class CredentialReference
 {
     public function __construct(
@@ -52,6 +54,19 @@ final readonly class CredentialReference
             'purpose' => $this->purpose->value,
             'version' => $this->version,
         ];
+    }
+
+    public static function fromRouter(Router $router): self
+    {
+        return self::fromArray([
+            'tenant_ref' => (string) $router->tenant_id,
+            'router_ref' => (string) $router->id,
+            'agent_ref' => $router->observer_agent_ref,
+            'installation_id' => $router->observer_installation_id,
+            'credential_ref' => $router->observer_credential_ref,
+            'purpose' => $router->observer_credential_purpose,
+            'version' => $router->observer_credential_version,
+        ]);
     }
 
     private static function ref(mixed $value): string
