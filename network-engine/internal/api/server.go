@@ -73,7 +73,7 @@ func NewWithMutationProvider(provider network.Provider, mutation network.Mutatio
 		discovery:   discovery,
 		token:       token,
 		logger:      logger,
-		idempotency: &idempotencyStore{results: make(map[string]network.Result)},
+		idempotency: &idempotencyStore{results: make(map[string]idempotencyEntry)},
 		monitoring:  monitor,
 	}
 }
@@ -270,7 +270,7 @@ func (server *Server) execute(writer http.ResponseWriter, request *http.Request,
 		server.invalid(writer, command.OperationID, "INVALID_REQUEST", "Invalid network request")
 		return
 	}
-	result, replayed := server.idempotency.execute(command.IdempotencyKey, func() network.Result {
+	result, replayed := server.idempotency.execute(command.IdempotencyKey, command.RequestDigest, func() network.Result {
 		result := server.invoke(request.Context(), command)
 		if result.OperationID == "" {
 			result.OperationID = command.OperationID
@@ -408,6 +408,9 @@ func statusFor(result network.Result) int {
 	if result.Code == "OPERATION_NOT_ALLOWED" {
 		return http.StatusNotImplemented
 	}
+	if result.Code == "IDEMPOTENCY_CONFLICT" {
+		return http.StatusConflict
+	}
 	return http.StatusBadGateway
 }
 
@@ -423,16 +426,24 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 
 type idempotencyStore struct {
 	mu      sync.Mutex
-	results map[string]network.Result
+	results map[string]idempotencyEntry
 }
 
-func (store *idempotencyStore) execute(key string, operation func() network.Result) (network.Result, bool) {
+type idempotencyEntry struct {
+	digest string
+	result network.Result
+}
+
+func (store *idempotencyStore) execute(key, digest string, operation func() network.Result) (network.Result, bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if result, found := store.results[key]; found {
-		return result, true
+	if entry, found := store.results[key]; found {
+		if entry.digest != digest {
+			return network.Result{Success: false, OperationID: entry.result.OperationID, Provider: entry.result.Provider, Code: "IDEMPOTENCY_CONFLICT", Message: "Idempotency key conflicts with a different request"}, true
+		}
+		return entry.result, true
 	}
 	result := operation()
-	store.results[key] = result
+	store.results[key] = idempotencyEntry{digest: digest, result: result}
 	return result, false
 }

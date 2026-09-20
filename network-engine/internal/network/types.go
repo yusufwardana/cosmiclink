@@ -3,20 +3,32 @@ package network
 import "context"
 
 type Request struct {
-	OperationID       string         `json:"operation_id"`
-	IdempotencyKey    string         `json:"idempotency_key"`
-	Operation         string         `json:"operation"`
-	TenantRef         string         `json:"tenant_ref"`
-	RouterRef         string         `json:"router_ref"`
-	AgentRef          string         `json:"agent_ref,omitempty"`
-	InstallationID    string         `json:"installation_id,omitempty"`
-	CredentialRef     string         `json:"credential_ref,omitempty"`
-	CredentialPurpose string         `json:"credential_purpose,omitempty"`
-	CredentialVersion int            `json:"credential_version,omitempty"`
-	TargetIdentityRef string         `json:"target_identity_ref,omitempty"`
-	FencingRef        string         `json:"fencing_ref,omitempty"`
-	AccountRef        string         `json:"account_ref,omitempty"`
-	Parameters        map[string]any `json:"parameters"`
+	ProtocolVersion           string         `json:"protocol_version,omitempty"`
+	OperationID               string         `json:"operation_id"`
+	IdempotencyKey            string         `json:"idempotency_key"`
+	RequestDigest             string         `json:"request_digest"`
+	ExecutionID               string         `json:"execution_id"`
+	Operation                 string         `json:"operation"`
+	TenantRef                 string         `json:"tenant_ref"`
+	RouterRef                 string         `json:"router_ref"`
+	AgentRef                  string         `json:"agent_ref,omitempty"`
+	InstallationID            string         `json:"installation_id,omitempty"`
+	CredentialRef             string         `json:"credential_ref,omitempty"`
+	CredentialPurpose         string         `json:"credential_purpose,omitempty"`
+	CredentialVersion         int            `json:"credential_version,omitempty"`
+	ObserverCredentialRef     string         `json:"observer_credential_ref,omitempty"`
+	ObserverPurpose           string         `json:"observer_credential_purpose,omitempty"`
+	ObserverCredentialVersion int            `json:"observer_credential_version,omitempty"`
+	TargetIdentityRef         string         `json:"target_identity_ref,omitempty"`
+	FencingRef                string         `json:"fencing_ref,omitempty"`
+	AccountRef                string         `json:"account_ref,omitempty"`
+	Host                      string         `json:"host,omitempty"`
+	Port                      int            `json:"port,omitempty"`
+	Transport                 string         `json:"transport,omitempty"`
+	ConnectTimeoutSeconds     int            `json:"connect_timeout_seconds,omitempty"`
+	ReadTimeoutSeconds        int            `json:"read_timeout_seconds,omitempty"`
+	InsecureTLS               bool           `json:"insecure_tls,omitempty"`
+	Parameters                map[string]any `json:"parameters"`
 }
 
 type Result struct {

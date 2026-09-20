@@ -19,12 +19,13 @@ const (
 	readSystemIdentity = "/system/identity/print"
 	readPPPProfile     = "/ppp/profile/print"
 	readPPPSecret      = "/ppp/secret/print"
+	readPPPActive      = "/ppp/active/print"
 	readIPPool         = "/ip/pool/print"
 	readSimpleQueue    = "/queue/simple/print"
 )
 
 var allowedRouterOSReadCommands = map[string]struct{}{
-	readSystemResource: {}, readSystemIdentity: {}, readPPPProfile: {}, readPPPSecret: {}, readIPPool: {}, readSimpleQueue: {},
+	readSystemResource: {}, readSystemIdentity: {}, readPPPProfile: {}, readPPPSecret: {}, readPPPActive: {}, readIPPool: {}, readSimpleQueue: {},
 }
 
 var ErrForbiddenRouterOSCommand = errors.New("forbidden RouterOS command")
@@ -43,6 +44,12 @@ type RouterOSTransportFactory func() RouterOSTransport
 type RouterOSDiscoveryProvider struct {
 	newTransport     RouterOSTransportFactory
 	allowInsecureTLS bool
+}
+
+// TransportFactory exposes the existing read-only transport construction seam
+// to the mutation provider. It does not widen RouterOSTransport with writes.
+func (p *RouterOSDiscoveryProvider) TransportFactory() RouterOSTransportFactory {
+	return p.newTransport
 }
 
 func NewRouterOSDiscoveryProvider() *RouterOSDiscoveryProvider {

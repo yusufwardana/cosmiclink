@@ -2,8 +2,10 @@
 
 namespace Tests\Unit;
 
+use App\Models\NetworkAccount;
 use App\Models\Router;
 use App\Models\Tenant;
+use App\Services\Network\ControlledNetworkExecution;
 use App\Services\Network\FakeNetworkDriver;
 use App\Services\Network\GoNetworkDriver;
 use App\Services\Network\NetworkDriver;
@@ -104,6 +106,46 @@ class GoNetworkDriverTest extends TestCase
         });
 
         $result = app(GoNetworkDriver::class)->disablePppoeAccount($router, 'cust001');
+
+        $this->assertTrue($result->successful);
+    }
+
+    public function test_controlled_execution_forwards_authoritative_identities_and_operator_reference_unchanged(): void
+    {
+        config()->set('network.go.url', 'http://network-engine.test');
+        config()->set('network.go.token', 'shared-test-token');
+        $router = Router::factory()->for(Tenant::factory())->make(['id' => 42, 'tenant_id' => 7, 'host' => 'router.test', 'api_port' => 8728]);
+        $account = new NetworkAccount(['username' => 'cust001']);
+        $account->setRelation('router', $router);
+        $execution = new ControlledNetworkExecution(
+            operation: 'DISABLE_PPPOE',
+            idempotencyKey: 'laravel-authoritative-key',
+            requestDigest: str_repeat('a', 64),
+            executionId: 'network-operation-exact-1',
+            agentRef: 'agent-1',
+            installationId: 'install-1',
+            credentialRef: 'operator-ref',
+            credentialVersion: 3,
+            targetIdentityRef: '*7',
+            fencingRef: 'reservation-1',
+        );
+
+        Http::fake(function (Request $request) use ($execution) {
+            $this->assertSame('laravel-authoritative-key', $request['idempotency_key']);
+            $this->assertSame(str_repeat('a', 64), $request['request_digest']);
+            $this->assertSame('network-operation-exact-1', $request['execution_id']);
+            $this->assertSame('agent-1', $request['agent_ref']);
+            $this->assertSame('install-1', $request['installation_id']);
+            $this->assertSame('operator-ref', $request['credential_ref']);
+            $this->assertSame('OPERATOR', $request['credential_purpose']);
+            $this->assertSame(3, $request['credential_version']);
+            $this->assertSame('*7', $request['target_identity_ref']);
+            $this->assertArrayNotHasKey('password', $request->data());
+
+            return Http::response(['success' => true, 'operation_id' => $execution->executionId, 'provider' => 'fake', 'code' => 'ACCOUNT_DISABLED', 'message' => 'ok']);
+        });
+
+        $result = app(GoNetworkDriver::class)->executeControlled($router, $account, $execution);
 
         $this->assertTrue($result->successful);
     }

@@ -69,4 +69,13 @@ class NetworkAgentCompatibilityService
             && $this->compare($agent->version, config('network_agents.lease_minimum_version')) >= 0
             && in_array('jobs.lease.v1', $agent->capabilities ?? [], true));
     }
+
+    public function canMutate(NetworkAgent $agent): bool
+    {
+        return $this->compatibility($agent) !== 'UNSUPPORTED'
+            && is_string($agent->version)
+            && $this->valid($agent->version)
+            && $this->compare($agent->version, config('network_agents.lease_minimum_version')) >= 0
+            && in_array('jobs.lease.v1', $agent->capabilities ?? [], true);
+    }
 }

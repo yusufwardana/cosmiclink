@@ -27,9 +27,13 @@ func TestFakeMutationProviderDoesNotResolveCredentials(t *testing.T) {
 	}
 }
 
-func TestRouterOSSelectionStillFailsClosedWithResolver(t *testing.T) {
-	selected, err := NewMutationProviderWithResolver(MutationProviderRouterOS, &countingResolver{})
-	if err == nil || selected != nil {
+func TestRouterOSSelectionConstructsWithoutResolvingOrContactingHardware(t *testing.T) {
+	resolver := &countingResolver{}
+	selected, err := NewMutationProviderWithResolver(MutationProviderRouterOS, resolver)
+	if err != nil || selected == nil {
 		t.Fatalf("selected=%#v err=%v", selected, err)
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("provider construction resolved credentials: calls=%d", resolver.calls)
 	}
 }

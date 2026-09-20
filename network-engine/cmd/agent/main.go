@@ -35,7 +35,13 @@ func main() {
 		slog.Error("agent provider configuration failed", "error", err)
 		os.Exit(1)
 	}
-	a := agent.NewWithCredentialResolver(agent.Config{CoreURL: coreURL, Token: token, Name: value("COSMICLINK_AGENT_NAME", "network-agent"), DataDir: dataDir, Timeout: 10 * time.Second, PollInterval: seconds("COSMICLINK_AGENT_POLL_INTERVAL", 5), HeartbeatInterval: seconds("NETWORK_AGENT_HEARTBEAT_SECONDS", 30), MaxBackoff: seconds("COSMICLINK_AGENT_MAX_BACKOFF_SECONDS", 60)}, p, agent.NewLazyProductionResolver(dataDir), slog.Default())
+	resolver := agent.NewLazyProductionResolver(dataDir)
+	mutation, err := provider.NewMutationProviderWithResolver(value("NETWORK_MUTATION_PROVIDER", "fake"), resolver)
+	if err != nil {
+		slog.Error("agent mutation provider configuration failed", "error", err)
+		os.Exit(1)
+	}
+	a := agent.NewWithProviders(agent.Config{CoreURL: coreURL, Token: token, Name: value("COSMICLINK_AGENT_NAME", "network-agent"), DataDir: dataDir, Timeout: 10 * time.Second, PollInterval: seconds("COSMICLINK_AGENT_POLL_INTERVAL", 5), HeartbeatInterval: seconds("NETWORK_AGENT_HEARTBEAT_SECONDS", 30), MaxBackoff: seconds("COSMICLINK_AGENT_MAX_BACKOFF_SECONDS", 60)}, p, mutation, resolver, slog.Default())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	service := admin.NewService(dataDir, value("COSMICLINK_AGENT_ACTOR", "windows-administrator"))

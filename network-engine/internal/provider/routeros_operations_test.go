@@ -179,8 +179,8 @@ func TestDiscoveryAndMonitoringProvidersStayReadOnlyAfterTaskOne(t *testing.T) {
 	if _, allowed := allowedRouterOSReadCommands[removePPPActiveCommand]; allowed {
 		t.Fatal("a write command must never appear in the discovery read allowlist")
 	}
-	if len(allowedRouterOSReadCommands) != 6 {
-		t.Fatalf("discovery read allowlist size = %d, want the six unchanged print commands", len(allowedRouterOSReadCommands))
+	if len(allowedRouterOSReadCommands) != 7 {
+		t.Fatalf("discovery read allowlist size = %d, want the seven read-only commands", len(allowedRouterOSReadCommands))
 	}
 	transport := &fakeRouterOSTransport{responses: successfulResponses()}
 	result := NewRouterOSDiscoveryProviderWithTransport(func() RouterOSTransport { return transport }).Discover(context.Background(), validRouterOSRequest())

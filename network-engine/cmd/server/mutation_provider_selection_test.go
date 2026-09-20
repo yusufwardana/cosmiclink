@@ -32,7 +32,7 @@ func TestSelectMutationProviderDefaultsToTheSharedFakeSimulation(t *testing.T) {
 	}
 	before := shared.MutationCount()
 
-	selected, err := selectMutationProvider(config.Config{MutationProvider: "fake"})
+	selected, err := selectMutationProvider(config.Config{MutationProvider: "fake"}, nil)
 	if err != nil {
 		t.Fatalf("selectMutationProvider(fake) failed: %v", err)
 	}
@@ -50,8 +50,8 @@ func TestSelectMutationProviderDefaultsToTheSharedFakeSimulation(t *testing.T) {
 }
 
 func TestSelectMutationProviderFailsClosedForUnknownSelections(t *testing.T) {
-	for _, selection := range []string{"", "   ", "Fake", "FAKE", "simulated", "routeros", "router-ops", "both", "legacy"} {
-		selected, err := selectMutationProvider(config.Config{MutationProvider: selection})
+	for _, selection := range []string{"", "   ", "Fake", "FAKE", "simulated", "router-ops", "both", "legacy"} {
+		selected, err := selectMutationProvider(config.Config{MutationProvider: selection}, nil)
 		if err == nil {
 			t.Fatalf("selectMutationProvider(%q) returned %#v, want a startup error", selection, selected)
 		}
@@ -64,15 +64,13 @@ func TestSelectMutationProviderFailsClosedForUnknownSelections(t *testing.T) {
 	}
 }
 
-// Selecting routeros must fail at startup rather than start a degraded engine,
-// because no safe real write provider exists yet in Phase 6I.
-func TestSelectMutationProviderRefusesTheRealRouterOSSHAt(t *testing.T) {
-	selected, err := selectMutationProvider(config.Config{MutationProvider: "routeros"})
-	if !errors.Is(err, provider.ErrRealMutationProviderUnavailable) {
-		t.Fatalf("routeros selection error = %v, want ErrRealMutationProviderUnavailable", err)
+func TestSelectMutationProviderConstructsRouterOSWithoutHardwareContact(t *testing.T) {
+	selected, err := selectMutationProvider(config.Config{MutationProvider: "routeros"}, nil)
+	if err != nil {
+		t.Fatalf("routeros selection error = %v", err)
 	}
-	if selected != nil {
-		t.Fatalf("a refused selection must not return a provider, got %#v", selected)
+	if selected == nil || selected.Name() != "routeros" {
+		t.Fatalf("routeros selection = %#v", selected)
 	}
 }
 
@@ -88,7 +86,7 @@ func engineConfig(selection string) config.Config {
 	}
 }
 
-func TestBuildHandlerAcceptsTheFakeSelectionAndRejectsTheRealOne(t *testing.T) {
+func TestBuildHandlerAcceptsFakeAndConstructsRouterOS(t *testing.T) {
 	_, cleanup, err := buildHandler(engineConfig("fake"), discard())
 	if err != nil {
 		t.Fatalf("buildHandler(fake) failed: %v", err)
@@ -98,10 +96,11 @@ func TestBuildHandlerAcceptsTheFakeSelectionAndRejectsTheRealOne(t *testing.T) {
 	}
 	cleanup()
 
-	_, _, err = buildHandler(engineConfig("routeros"), discard())
-	if !errors.Is(err, provider.ErrRealMutationProviderUnavailable) {
-		t.Fatalf("buildHandler(routeros) error = %v, want a startup refusal", err)
+	_, cleanup, err = buildHandler(engineConfig("routeros"), discard())
+	if err != nil {
+		t.Fatalf("buildHandler(routeros) error = %v", err)
 	}
+	cleanup()
 
 	_, _, err = buildHandler(engineConfig("fake "), discard())
 	if err == nil || !strings.Contains(err.Error(), "unsupported") {

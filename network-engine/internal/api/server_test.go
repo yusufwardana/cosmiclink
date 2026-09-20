@@ -56,6 +56,18 @@ func TestNetworkExecutionLifecycleAndIdempotency(t *testing.T) {
 	assertCode(t, execute(server, http.MethodPost, "/v1/network/accounts/cust001/disconnect", command("DISCONNECT_SESSION", "cust001", nil), testToken), http.StatusOK, "SESSION_DISCONNECTED")
 }
 
+func TestSameIdempotencyKeyWithDifferentDigestIsRejected(t *testing.T) {
+	server := testServer()
+	first := command("DISABLE_PPPOE", "cust001", nil)
+	first.RequestDigest = "digest-a"
+	second := first
+	second.RequestDigest = "digest-b"
+
+	assertCode(t, execute(server, http.MethodPost, "/v1/network/accounts", command("CREATE_PPPOE", "cust001", map[string]any{"username": "cust001", "profile": "HOME-10M"}), testToken), http.StatusOK, "ACCOUNT_CREATED")
+	assertCode(t, execute(server, http.MethodPost, "/v1/network/accounts/cust001/disable", first, testToken), http.StatusOK, "ACCOUNT_DISABLED")
+	assertCode(t, execute(server, http.MethodPost, "/v1/network/accounts/cust001/disable", second, testToken), http.StatusConflict, "IDEMPOTENCY_CONFLICT")
+}
+
 func TestInvalidRequestAndUnknownAccountAreStructured(t *testing.T) {
 	server := testServer()
 	invalid := command("ENABLE_PPPOE", "", nil)

@@ -22,7 +22,7 @@ class Phase6ITask41ControlledOperationAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_each_controlled_operation_is_authorized_by_the_gate_before_driver_dispatch(): void
+    public function test_each_controlled_operation_is_authorized_by_the_gate_without_synchronous_driver_dispatch(): void
     {
         [$tenant, $operator] = $this->tenantWithUser('admin');
         $router = Router::factory()->for($tenant)->create();
@@ -42,7 +42,8 @@ class Phase6ITask41ControlledOperationAuthorizationTest extends TestCase
         $service->changeStatus($account, 'disabled', $operator);
         $service->disconnect($account, $operator);
 
-        $this->assertSame(['ENABLE_PPPOE', 'DISABLE_PPPOE', 'DISCONNECT_SESSION'], $driver->operations);
+        $this->assertSame([], $driver->operations);
+        $this->assertDatabaseCount('network_operation_logs', 3);
     }
 
     public function test_denied_controlled_operation_does_not_send_go_http(): void
@@ -75,8 +76,9 @@ class Phase6ITask41ControlledOperationAuthorizationTest extends TestCase
 
         $result = (new NetworkOperationService($driver, $gate))->changeStatus($browserAccount, 'active', $operator);
 
-        $this->assertTrue($result->successful);
-        $this->assertSame('current-username', $driver->usernames[0]);
+        $this->assertFalse($result->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $result->errorCode);
+        $this->assertSame([], $driver->usernames);
         $this->assertDatabaseHas('network_operation_logs', ['target' => 'current-username', 'network_account_id' => $account->id]);
     }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -228,4 +229,87 @@ func TestAgentRejectsUnsupportedJobAndHonorsCancellation(t *testing.T) {
 	if err := a.RunOnce(ctx); err == nil {
 		t.Fatal("cancelled context accepted")
 	}
+}
+
+func TestMutationResultSubmissionCarriesImmutableCorrelation(t *testing.T) {
+	var submitted map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agent/heartbeat":
+			_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
+		case "/api/v1/agent/jobs/claim":
+			_, _ = w.Write([]byte(`{"job":{"id":41,"type":"MUTATE_ENABLE_PPPOE","tenant_ref":"7","router_ref":"9","agent_ref":"550e8400-e29b-41d4-a716-446655440000","installation_id":"installation-1","credential_ref":"operator-ref","credential_purpose":"OPERATOR","credential_version":3,"observer_credential_ref":"observer-ref","observer_credential_purpose":"OBSERVER","observer_credential_version":2,"protocol_version":"routeros-mutation.v1","execution_id":"execution-1","idempotency_key":"idempotency-1","request_digest":"digest-1","target_identity_ref":"*7","account_ref":"customer-01","fencing_ref":"reservation-11","attempt":1,"fence":"lease-fence","renewal_seconds":30}}`))
+		case "/api/v1/agent/jobs/41/result":
+			if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	a := NewWithProviders(Config{CoreURL: server.URL, Token: "agent-token", Timeout: time.Second}, provider.NewFakeDiscoveryProvider(), provider.NewFakeProvider(), nil, nil)
+	if err := a.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for key, expected := range map[string]any{"job_type": "MUTATE_ENABLE_PPPOE", "tenant_ref": "7", "router_ref": "9", "agent_ref": "550e8400-e29b-41d4-a716-446655440000", "execution_id": "execution-1", "idempotency_key": "idempotency-1", "request_digest": "digest-1", "fencing_ref": "reservation-11"} {
+		if submitted[key] != expected {
+			t.Fatalf("%s = %#v, want %#v", key, submitted[key], expected)
+		}
+	}
+}
+
+func TestAgentExecutesAllControlledMutationJobTypesAndSubmitsResults(t *testing.T) {
+	for _, jobType := range []string{mutateEnable, mutateDisable, mutateDisconnect} {
+		t.Run(jobType, func(t *testing.T) {
+			var submitted map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/agent/heartbeat":
+					_, _ = w.Write([]byte(`{"identifier":"550e8400-e29b-41d4-a716-446655440000","status":"ok"}`))
+				case "/api/v1/agent/jobs/claim":
+					_, _ = fmt.Fprintf(w, `{"job":{"id":51,"type":%q,"tenant_ref":"7","router_ref":"9","agent_ref":"550e8400-e29b-41d4-a716-446655440000","installation_id":"installation-1","credential_ref":"operator-ref","credential_purpose":"OPERATOR","credential_version":3,"observer_credential_ref":"observer-ref","observer_credential_purpose":"OBSERVER","observer_credential_version":2,"protocol_version":"routeros-mutation.v1","execution_id":"execution-1","idempotency_key":"idempotency-1","request_digest":"digest-1","target_identity_ref":"*7","account_ref":"customer-01","fencing_ref":"reservation-11","attempt":1,"fence":"lease-fence","renewal_seconds":30}}`, jobType)
+				case "/api/v1/agent/jobs/51/result":
+					if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+						t.Fatal(err)
+					}
+					_, _ = w.Write([]byte(`{"status":"ok"}`))
+				default:
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+			}))
+			defer server.Close()
+			mutation := &successfulMutationProvider{}
+			a := NewWithProviders(Config{CoreURL: server.URL, Token: "agent-token", Timeout: time.Second}, provider.NewFakeDiscoveryProvider(), mutation, nil, nil)
+			if err := a.RunOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if mutation.operation != jobType {
+				t.Fatalf("operation = %q, want %q", mutation.operation, jobType)
+			}
+			if submitted["success"] != true || submitted["job_type"] != jobType {
+				t.Fatalf("submitted = %#v", submitted)
+			}
+		})
+	}
+}
+
+type successfulMutationProvider struct{ operation string }
+
+func (p *successfulMutationProvider) Name() string { return "synthetic" }
+func (p *successfulMutationProvider) SupportedOperations() []network.MutationOperation {
+	return network.MutationOperations()
+}
+func (p *successfulMutationProvider) EnableAccount(_ context.Context, request network.Request) network.Result {
+	p.operation = mutateEnable
+	return network.Result{Success: true, OperationID: request.OperationID, Provider: p.Name(), Code: "ACCOUNT_ENABLED", Message: "enabled"}
+}
+func (p *successfulMutationProvider) DisableAccount(_ context.Context, request network.Request) network.Result {
+	p.operation = mutateDisable
+	return network.Result{Success: true, OperationID: request.OperationID, Provider: p.Name(), Code: "ACCOUNT_DISABLED", Message: "disabled"}
+}
+func (p *successfulMutationProvider) DisconnectSession(_ context.Context, request network.Request) network.Result {
+	p.operation = mutateDisconnect
+	return network.Result{Success: true, OperationID: request.OperationID, Provider: p.Name(), Code: "SESSION_DISCONNECTED", Message: "disconnected"}
 }

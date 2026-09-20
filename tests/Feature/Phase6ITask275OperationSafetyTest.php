@@ -30,7 +30,7 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $this->app->instance(ControlledNetworkOperationGate::class, $gate);
     }
 
-    public function test_reservation_is_durable_before_driver_invocation_and_success_resolves(): void
+    public function test_missing_agent_contract_fails_after_reservation_without_driver_invocation(): void
     {
         $account = $this->account();
         $invoked = false;
@@ -46,12 +46,14 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $result = $this->service(new Task275ReservationNetworkDriver($invoked, $assertReservation))
             ->changeStatus($account, 'active', $this->operatorFor($account));
 
-        $this->assertTrue($invoked);
-        $this->assertTrue($result->successful);
+        $this->assertFalse($invoked);
+        $this->assertFalse($result->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $result->errorCode);
         $this->assertDatabaseHas('network_operation_logs', [
             'network_account_id' => $account->id,
-            'status' => 'success',
-            'outcome' => 'SUCCEEDED',
+            'status' => 'failed',
+            'outcome' => 'FAILED',
+            'failure_code' => 'MUTATION_JOB_CREATION_FAILED',
         ]);
     }
 
@@ -71,7 +73,7 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         ]);
     }
 
-    public function test_ambiguous_transport_failure_becomes_unknown_outcome(): void
+    public function test_synchronous_transport_failure_is_not_used_for_controlled_mutations(): void
     {
         $account = $this->account();
 
@@ -80,11 +82,11 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         ))->changeStatus($account, 'active', $this->operatorFor($account));
 
         $this->assertFalse($result->successful);
-        $this->assertSame('NETWORK_ENGINE_TIMEOUT', $result->errorCode);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $result->errorCode);
         $this->assertDatabaseHas('network_operation_logs', [
             'network_account_id' => $account->id,
-            'status' => 'unknown',
-            'outcome' => 'UNKNOWN_OUTCOME',
+            'status' => 'failed',
+            'outcome' => 'FAILED',
         ]);
     }
 
@@ -150,10 +152,13 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $conflict = $service->changeStatus($account, 'disabled', $this->operatorFor($account), idempotencyKey: 'same-key');
         $otherTenant = $service->changeStatus($other, 'active', $this->operatorFor($other), idempotencyKey: 'same-key');
 
-        $this->assertTrue($first->successful);
-        $this->assertTrue($replay->successful);
+        $this->assertFalse($first->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $first->errorCode);
+        $this->assertFalse($replay->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $replay->errorCode);
         $this->assertSame('IDEMPOTENCY_CONFLICT', $conflict->errorCode);
-        $this->assertTrue($otherTenant->successful);
+        $this->assertFalse($otherTenant->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $otherTenant->errorCode);
     }
 
     public function test_same_tenant_different_router_scopes_do_not_conflict(): void
@@ -165,8 +170,8 @@ class Phase6ITask275OperationSafetyTest extends TestCase
         $accountB = $this->accountFor($tenant, $routerB, 'router-b-user');
         $service = $this->service($this->driverReturning(new NetworkOperationResult(true, 'enabled')));
 
-        $this->assertTrue($service->changeStatus($accountA, 'active', $this->operatorFor($accountA))->successful);
-        $this->assertTrue($service->changeStatus($accountB, 'active', $this->operatorFor($accountB))->successful);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $service->changeStatus($accountA, 'active', $this->operatorFor($accountA))->errorCode);
+        $this->assertSame('MUTATION_JOB_CREATION_FAILED', $service->changeStatus($accountB, 'active', $this->operatorFor($accountB))->errorCode);
     }
 
     public function test_billing_boundary_blocks_non_fake_driver_before_dispatch(): void

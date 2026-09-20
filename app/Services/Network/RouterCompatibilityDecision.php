@@ -11,12 +11,14 @@ final readonly class RouterCompatibilityDecision
         public string $configuredProvider,
         public string $executionMode,
         public bool $realProviderCompatible,
+        public bool $architectureSupported = false,
+        public bool $hardwareAccepted = false,
         public ?int $snapshotId = null,
         public ?string $routerOsVersion = null,
     ) {}
 
     public function canAuthorizeRealMutation(): bool
     {
-        return $this->compatible && $this->realProviderCompatible;
+        return $this->compatible && $this->realProviderCompatible && $this->hardwareAccepted;
     }
 }

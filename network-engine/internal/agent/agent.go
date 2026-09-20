@@ -19,7 +19,12 @@ import (
 	"cosmiclink/network-engine/internal/network"
 )
 
-const discoverRouter = "DISCOVER_ROUTER"
+const (
+	discoverRouter   = "DISCOVER_ROUTER"
+	mutateEnable     = "MUTATE_ENABLE_PPPOE"
+	mutateDisable    = "MUTATE_DISABLE_PPPOE"
+	mutateDisconnect = "MUTATE_DISCONNECT_SESSION"
+)
 
 type Config struct {
 	CoreURL, Token, Name                        string
@@ -28,25 +33,35 @@ type Config struct {
 	PollInterval, HeartbeatInterval, MaxBackoff time.Duration
 }
 type Job struct {
-	ID                    int64                        `json:"id"`
-	Type                  string                       `json:"type"`
-	RouterRef             string                       `json:"router_ref"`
-	Connection            *network.DiscoveryConnection `json:"connection,omitempty"`
-	TenantRef             string                       `json:"tenant_ref"`
-	AgentRef              string                       `json:"agent_ref"`
-	InstallationID        string                       `json:"installation_id,omitempty"`
-	CredentialRef         string                       `json:"credential_ref,omitempty"`
-	CredentialPurpose     string                       `json:"credential_purpose,omitempty"`
-	CredentialVersion     int                          `json:"credential_version,omitempty"`
-	Host                  string                       `json:"host,omitempty"`
-	Port                  int                          `json:"port,omitempty"`
-	Transport             string                       `json:"transport,omitempty"`
-	ConnectTimeoutSeconds int                          `json:"connect_timeout_seconds,omitempty"`
-	ReadTimeoutSeconds    int                          `json:"read_timeout_seconds,omitempty"`
-	InsecureTLS           bool                         `json:"insecure_tls,omitempty"`
-	Attempt               int                          `json:"attempt"`
-	Fence                 string                       `json:"fence"`
-	RenewalSeconds        int                          `json:"renewal_seconds"`
+	ID                        int64                        `json:"id"`
+	Type                      string                       `json:"type"`
+	RouterRef                 string                       `json:"router_ref"`
+	Connection                *network.DiscoveryConnection `json:"connection,omitempty"`
+	TenantRef                 string                       `json:"tenant_ref"`
+	AgentRef                  string                       `json:"agent_ref"`
+	InstallationID            string                       `json:"installation_id,omitempty"`
+	CredentialRef             string                       `json:"credential_ref,omitempty"`
+	CredentialPurpose         string                       `json:"credential_purpose,omitempty"`
+	CredentialVersion         int                          `json:"credential_version,omitempty"`
+	ObserverCredentialRef     string                       `json:"observer_credential_ref,omitempty"`
+	ObserverPurpose           string                       `json:"observer_credential_purpose,omitempty"`
+	ObserverCredentialVersion int                          `json:"observer_credential_version,omitempty"`
+	ProtocolVersion           string                       `json:"protocol_version,omitempty"`
+	ExecutionID               string                       `json:"execution_id,omitempty"`
+	IdempotencyKey            string                       `json:"idempotency_key,omitempty"`
+	RequestDigest             string                       `json:"request_digest,omitempty"`
+	TargetIdentityRef         string                       `json:"target_identity_ref,omitempty"`
+	AccountRef                string                       `json:"account_ref,omitempty"`
+	FencingRef                string                       `json:"fencing_ref,omitempty"`
+	Host                      string                       `json:"host,omitempty"`
+	Port                      int                          `json:"port,omitempty"`
+	Transport                 string                       `json:"transport,omitempty"`
+	ConnectTimeoutSeconds     int                          `json:"connect_timeout_seconds,omitempty"`
+	ReadTimeoutSeconds        int                          `json:"read_timeout_seconds,omitempty"`
+	InsecureTLS               bool                         `json:"insecure_tls,omitempty"`
+	Attempt                   int                          `json:"attempt"`
+	Fence                     string                       `json:"fence"`
+	RenewalSeconds            int                          `json:"renewal_seconds"`
 }
 type claimResponse struct {
 	Job *Job `json:"job"`
@@ -57,6 +72,7 @@ type Agent struct {
 	bootstrap          *BootstrapState
 	bootstrapErr       error
 	provider           network.DiscoveryProvider
+	mutationProvider   network.MutationProvider
 	credentialResolver JobResolver
 	client             *http.Client
 	logger             *slog.Logger
@@ -75,6 +91,12 @@ func New(config Config, provider network.DiscoveryProvider, logger *slog.Logger)
 // any network/provider operation.
 func NewWithCredentialResolver(config Config, provider network.DiscoveryProvider, resolver JobResolver, logger *slog.Logger) *Agent {
 	return newAgent(config, provider, resolver, logger)
+}
+
+func NewWithProviders(config Config, discovery network.DiscoveryProvider, mutation network.MutationProvider, resolver JobResolver, logger *slog.Logger) *Agent {
+	a := newAgent(config, discovery, resolver, logger)
+	a.mutationProvider = mutation
+	return a
 }
 
 func newAgent(config Config, provider network.DiscoveryProvider, resolver JobResolver, logger *slog.Logger) *Agent {
@@ -272,6 +294,16 @@ func (a *Agent) RunOnce(ctx context.Context) error {
 	}
 	result["attempt"] = job.Attempt
 	result["fence"] = job.Fence
+	if job.Type == mutateEnable || job.Type == mutateDisable || job.Type == mutateDisconnect {
+		result["job_type"] = job.Type
+		result["tenant_ref"] = job.TenantRef
+		result["router_ref"] = job.RouterRef
+		result["agent_ref"] = job.AgentRef
+		result["execution_id"] = job.ExecutionID
+		result["idempotency_key"] = job.IdempotencyKey
+		result["request_digest"] = job.RequestDigest
+		result["fencing_ref"] = job.FencingRef
+	}
 	return a.request(ctx, fmt.Sprintf("/api/v1/agent/jobs/%d/result", claimed.Job.ID), result, nil)
 }
 
@@ -281,6 +313,9 @@ func (a *Agent) Execute(ctx context.Context, job Job) error {
 }
 
 func (a *Agent) executeResult(ctx context.Context, job Job) (map[string]any, error) {
+	if job.Type == mutateEnable || job.Type == mutateDisable || job.Type == mutateDisconnect {
+		return a.executeMutationResult(ctx, job)
+	}
 	if job.Type != discoverRouter {
 		return nil, errors.New("unsupported network agent job type")
 	}
@@ -306,6 +341,27 @@ func (a *Agent) executeResult(ctx context.Context, job Job) (map[string]any, err
 		payload["snapshot"] = result.Snapshot
 	}
 	return payload, nil
+}
+
+func (a *Agent) executeMutationResult(ctx context.Context, job Job) (map[string]any, error) {
+	if a.mutationProvider == nil {
+		return map[string]any{"success": false, "code": "MUTATION_PROVIDER_UNAVAILABLE", "message": "Mutation provider unavailable."}, nil
+	}
+	if job.ProtocolVersion != "routeros-mutation.v1" || job.ExecutionID == "" || job.IdempotencyKey == "" || job.RequestDigest == "" || job.FencingRef == "" || job.AgentRef == "" || job.InstallationID == "" || job.CredentialRef == "" || job.CredentialPurpose != string(credentials.PurposeOperator) || job.CredentialVersion < 1 || job.ObserverCredentialRef == "" || job.ObserverPurpose != string(credentials.PurposeObserver) || job.ObserverCredentialVersion < 1 {
+		return map[string]any{"success": false, "code": "MUTATION_CONTRACT_INVALID", "message": "Mutation execution contract is invalid."}, nil
+	}
+	operation := map[string]network.MutationOperation{mutateEnable: network.MutationEnablePPPoE, mutateDisable: network.MutationDisablePPPoE, mutateDisconnect: network.MutationDisconnectSession}[job.Type]
+	request := network.Request{ProtocolVersion: job.ProtocolVersion, OperationID: job.ExecutionID, IdempotencyKey: job.IdempotencyKey, RequestDigest: job.RequestDigest, ExecutionID: job.ExecutionID, Operation: string(operation), TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: job.InstallationID, CredentialRef: job.CredentialRef, CredentialPurpose: job.CredentialPurpose, CredentialVersion: job.CredentialVersion, ObserverCredentialRef: job.ObserverCredentialRef, ObserverPurpose: job.ObserverPurpose, ObserverCredentialVersion: job.ObserverCredentialVersion, TargetIdentityRef: job.TargetIdentityRef, FencingRef: job.FencingRef, AccountRef: job.AccountRef, Host: job.Host, Port: job.Port, Transport: job.Transport, ConnectTimeoutSeconds: job.ConnectTimeoutSeconds, ReadTimeoutSeconds: job.ReadTimeoutSeconds, InsecureTLS: job.InsecureTLS, Parameters: map[string]any{}}
+	var result network.Result
+	switch operation {
+	case network.MutationEnablePPPoE:
+		result = a.mutationProvider.EnableAccount(ctx, request)
+	case network.MutationDisablePPPoE:
+		result = a.mutationProvider.DisableAccount(ctx, request)
+	case network.MutationDisconnectSession:
+		result = a.mutationProvider.DisconnectSession(ctx, request)
+	}
+	return map[string]any{"success": result.Success, "provider": result.Provider, "code": result.Code, "message": result.Message, "data": result.Data}, nil
 }
 
 func (a *Agent) request(ctx context.Context, path string, input, output any) error {

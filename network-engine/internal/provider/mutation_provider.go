@@ -43,8 +43,8 @@ func SupportedMutationProviders() []string {
 }
 
 // NewMutationProvider selects the provider that may serve Phase 6I RouterOS
-// mutations. The fake selection returns the shared simulation; the routeros
-// selection is refused until Task 4 registers a safe, auditable real provider.
+// mutations. The no-argument form remains useful for tests and deliberately
+// cannot construct a live provider because it has no local credential resolver.
 func NewMutationProvider(selection string) (network.MutationProvider, error) {
 	return NewMutationProviderWithResolver(selection, nil)
 }
@@ -61,7 +61,10 @@ func NewMutationProviderWithResolver(selection string, resolver credentials.Reso
 		}
 		return GlobalFakeProvider(), nil
 	case MutationProviderRouterOS:
-		return nil, fmt.Errorf("%w: %s", ErrRealMutationProviderUnavailable, "no allowlisted RouterOS write provider is registered in this build")
+		if resolver == nil {
+			return nil, fmt.Errorf("%w: %s", ErrRealMutationProviderUnavailable, "an exact local OPERATOR credential resolver is required")
+		}
+		return NewRouterOSMutationProvider(resolver, resolver, NewRealRouterOSMutationTransport, NewRouterOSDiscoveryProviderWithTLS(false).TransportFactory())
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMutationProvider, "selection must be one of the supported provider names")
 	}
@@ -84,7 +87,7 @@ func MutationProviderFor(selection string, registered network.Provider) (network
 		}
 		return narrow, nil
 	case MutationProviderRouterOS:
-		return nil, fmt.Errorf("%w: %s", ErrRealMutationProviderUnavailable, "the real RouterOS mutation provider is staged for a later task")
+		return NewMutationProviderWithResolver(selection, nil)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMutationProvider, "selection must be one of the supported provider names")
 	}

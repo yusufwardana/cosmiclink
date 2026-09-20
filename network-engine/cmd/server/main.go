@@ -10,6 +10,7 @@ import (
 	"cosmiclink/network-engine/internal/agent"
 	"cosmiclink/network-engine/internal/api"
 	"cosmiclink/network-engine/internal/config"
+	"cosmiclink/network-engine/internal/credentials"
 	"cosmiclink/network-engine/internal/monitoring"
 	"cosmiclink/network-engine/internal/network"
 	"cosmiclink/network-engine/internal/provider"
@@ -43,10 +44,9 @@ func main() {
 	}
 }
 
-// buildHandler composes the HTTP handler from configuration. It is separated
-// from main so provider selection, including the Phase 6I refusal of real
-// RouterOS mutations, is testable. Startup fails hard when a selection cannot be
-// satisfied: the engine never starts a degraded provider silently.
+// buildHandler composes the HTTP handler from configuration. Provider selection
+// is explicit and fail-closed; selecting routeros constructs the typed provider
+// without dialing hardware.
 func buildHandler(loaded config.Config, logger *slog.Logger) (http.Handler, func(), error) {
 	discovery, err := provider.NewDiscoveryProvider(loaded.DiscoveryProvider, loaded.AllowInsecureRouterOSTLS)
 	if err != nil {
@@ -57,25 +57,25 @@ func buildHandler(loaded config.Config, logger *slog.Logger) (http.Handler, func
 		return nil, nil, err
 	}
 	simulation := provider.GlobalFakeProvider()
-	mutation, err := selectMutationProvider(loaded)
-	if err != nil {
-		return nil, nil, err
-	}
 	var resolver *agent.LazyProductionResolver
 	if loaded.AgentDataDir != "" {
 		resolver = agent.NewLazyProductionResolver(loaded.AgentDataDir)
+	}
+	mutation, err := selectMutationProvider(loaded, resolver)
+	if err != nil {
+		return nil, nil, err
 	}
 	server := api.NewWithCredentialResolver(simulation, discovery, monitor, resolver, loaded.Token, logger)
 	server.SetMutationProvider(mutation)
 	return server.Handler(), func() {}, nil
 }
 
-// selectMutationProvider resolves the Phase 6I write provider. Only the shared
-// simulation is registrable today; "routeros" is refused until a real provider
-// with an allowlisted transport and audit trail exists.
-func selectMutationProvider(loaded config.Config) (network.MutationProvider, error) {
+func selectMutationProvider(loaded config.Config, resolver credentials.Resolver) (network.MutationProvider, error) {
 	if loaded.MutationProvider == provider.MutationProviderRouterOS {
-		return nil, fmt.Errorf("NETWORK_MUTATION_PROVIDER=%q: %w", loaded.MutationProvider, provider.ErrRealMutationProviderUnavailable)
+		if resolver == nil {
+			resolver = agent.NewLazyProductionResolver("")
+		}
+		return provider.NewMutationProviderWithResolver(loaded.MutationProvider, resolver)
 	}
 	return provider.MutationProviderFor(loaded.MutationProvider, provider.GlobalFakeProvider())
 }

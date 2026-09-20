@@ -75,6 +75,8 @@ class RouterCompatibilityEvidenceService
             configuredProvider: $provider,
             executionMode: $executionMode,
             realProviderCompatible: false,
+            architectureSupported: $provider === 'fake' || $provider === 'routeros',
+            hardwareAccepted: false,
             snapshotId: $snapshotId,
             routerOsVersion: $version,
         );

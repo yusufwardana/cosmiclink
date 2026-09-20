@@ -2,14 +2,27 @@
 
 namespace App\Services\Network;
 
+use App\Models\NetworkAccount;
 use App\Models\Router;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
 
-class GoNetworkDriver implements NetworkDriver
+class GoNetworkDriver implements ControlledNetworkDriver, NetworkDriver
 {
+    public function executeControlled(Router $router, NetworkAccount $account, ControlledNetworkExecution $execution): NetworkOperationResult
+    {
+        $path = match ($execution->operation) {
+            'ENABLE_PPPOE' => '/v1/network/accounts/'.rawurlencode($account->username).'/enable',
+            'DISABLE_PPPOE' => '/v1/network/accounts/'.rawurlencode($account->username).'/disable',
+            'DISCONNECT_SESSION' => '/v1/network/accounts/'.rawurlencode($account->username).'/disconnect',
+            default => throw new \InvalidArgumentException('Unsupported controlled network operation.'),
+        };
+
+        return $this->execute($execution->operation, $path, $router, $account->username, [], $execution);
+    }
+
     public function testConnection(Router $router): NetworkOperationResult
     {
         return $this->execute('TEST_CONNECTION', '/v1/network/routers/test', $router);
@@ -44,20 +57,43 @@ class GoNetworkDriver implements NetworkDriver
         return $this->execute('DISCONNECT_SESSION', '/v1/network/accounts/'.rawurlencode($username).'/disconnect', $router, $username);
     }
 
-    private function execute(string $operation, string $path, Router $router, ?string $accountReference = null, array $parameters = []): NetworkOperationResult
+    private function execute(string $operation, string $path, Router $router, ?string $accountReference = null, array $parameters = [], ?ControlledNetworkExecution $execution = null): NetworkOperationResult
     {
-        $operationId = (string) Str::uuid();
+        $operationId = $execution?->executionId ?? (string) Str::uuid();
         $parameters = array_filter($parameters, static fn (mixed $value): bool => $value !== null);
         $requestParameters = $parameters === [] ? (object) [] : $parameters;
         $payload = [
+            'protocol_version' => $execution !== null ? 'routeros-mutation.v1' : null,
             'operation_id' => $operationId,
-            'idempotency_key' => hash('sha256', implode('|', [$operation, $router->tenant_id, $router->id, $accountReference ?? '', json_encode($parameters) ?: ''])),
+            'idempotency_key' => $execution?->idempotencyKey ?? hash('sha256', implode('|', [$operation, $router->tenant_id, $router->id, $accountReference ?? '', json_encode($parameters) ?: ''])),
+            'request_digest' => $execution?->requestDigest,
+            'execution_id' => $execution?->executionId,
             'operation' => $operation,
             'tenant_ref' => (string) $router->tenant_id,
             'router_ref' => (string) $router->id,
             'account_ref' => $accountReference,
             'parameters' => $requestParameters,
         ];
+        if ($execution !== null) {
+            $payload = array_merge($payload, [
+                'agent_ref' => $execution->agentRef,
+                'installation_id' => $execution->installationId,
+                'credential_ref' => $execution->credentialRef,
+                'credential_purpose' => 'OPERATOR',
+                'credential_version' => $execution->credentialVersion,
+                'target_identity_ref' => $execution->targetIdentityRef,
+                'fencing_ref' => $execution->fencingRef,
+                'host' => $router->host,
+                'port' => (int) $router->api_port,
+                'transport' => config('network.routeros.transport'),
+                'connect_timeout_seconds' => (int) config('network.routeros.connect_timeout_seconds'),
+                'read_timeout_seconds' => (int) config('network.routeros.read_timeout_seconds'),
+                'insecure_tls' => (bool) config('network.routeros.insecure_tls'),
+                'observer_credential_ref' => $execution->observerCredentialRef,
+                'observer_credential_purpose' => 'OBSERVER',
+                'observer_credential_version' => $execution->observerCredentialVersion,
+            ]);
+        }
 
         try {
             $response = Http::acceptJson()

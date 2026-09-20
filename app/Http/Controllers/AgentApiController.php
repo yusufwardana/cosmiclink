@@ -29,7 +29,25 @@ class AgentApiController extends Controller
     public function result(Request $request, NetworkAgentJob $job, NetworkAgentService $agents, NetworkDiscoveryService $discovery)
     {
         $agent = $this->agent($request, $agents);
-        $data = $request->validate(['attempt' => ['sometimes', 'integer', 'min:1'], 'fence' => ['sometimes', 'uuid'], 'success' => ['required', 'boolean'], 'provider' => ['nullable', 'string', 'max:100'], 'discovered_at' => ['nullable', 'date'], 'code' => ['nullable', 'string', 'max:100'], 'message' => ['nullable', 'string', 'max:1000'], 'snapshot' => ['nullable', 'array']]);
+        $data = $request->validate([
+            'attempt' => ['sometimes', 'integer', 'min:1'],
+            'fence' => ['sometimes', 'uuid'],
+            'success' => ['required', 'boolean'],
+            'provider' => ['nullable', 'string', 'max:100'],
+            'discovered_at' => ['nullable', 'date'],
+            'code' => ['nullable', 'string', 'max:100'],
+            'message' => ['nullable', 'string', 'max:1000'],
+            'snapshot' => ['nullable', 'array'],
+            'data' => ['nullable', 'array'],
+            'job_type' => ['nullable', 'string', 'max:64'],
+            'tenant_ref' => ['nullable', 'string', 'max:191'],
+            'router_ref' => ['nullable', 'string', 'max:191'],
+            'agent_ref' => ['nullable', 'string', 'max:191'],
+            'execution_id' => ['nullable', 'string', 'max:191'],
+            'idempotency_key' => ['nullable', 'string', 'max:191'],
+            'request_digest' => ['nullable', 'string', 'size:64'],
+            'fencing_ref' => ['nullable', 'string', 'max:191'],
+        ]);
         $job = $agents->submit($agent, $job, $data, $discovery);
 
         return response()->json(['id' => $job->id, 'status' => $job->status]);

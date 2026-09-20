@@ -15,7 +15,11 @@ use App\Models\ReconciliationEvidence;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Network\ControlledNetworkOperationGate;
 use App\Services\Network\ManagedAccountLifecycleService;
+use App\Services\Network\NetworkDriver;
+use App\Services\Network\NetworkOperationResult;
+use App\Services\Network\NetworkOperationService;
 use App\Support\Network\RouterResourceIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -238,6 +242,25 @@ class Phase6ITask3ManagedAccountLifecycleTest extends TestCase
         $this->assertDatabaseCount('network_account_transitions', 0);
     }
 
+    public function test_controlled_dispatch_requires_current_operation_preflight_before_reservation(): void
+    {
+        config(['network.mutations_enabled' => true]);
+        $fixture = $this->managedFixture();
+        $fixture['account']->update([
+            'management_state' => 'MANAGED',
+            'management_scope' => ManagedAccountLifecycleService::MANAGEMENT_SCOPE,
+        ]);
+        $driver = new Phase6ITask3RecordingDriver;
+
+        $result = (new NetworkOperationService($driver, app(ControlledNetworkOperationGate::class)))
+            ->changeStatus($fixture['account']->fresh(), 'disabled', $fixture['user'], $fixture['connection']);
+
+        $this->assertFalse($result->successful);
+        $this->assertSame('PREFLIGHT_MISSING', $result->errorCode);
+        $this->assertSame([], $driver->operations);
+        $this->assertDatabaseCount('network_operation_logs', 0);
+    }
+
     /**
      * @return array{tenant: Tenant, user: User, router: Router, account: NetworkAccount, connection: CustomerConnection, resource: DiscoveredNetworkResource}
      */
@@ -321,5 +344,47 @@ class Phase6ITask3ManagedAccountLifecycleTest extends TestCase
         ]);
 
         return compact('tenant', 'user', 'router', 'account', 'connection', 'resource');
+    }
+}
+
+final class Phase6ITask3RecordingDriver implements NetworkDriver
+{
+    /** @var list<string> */
+    public array $operations = [];
+
+    public function testConnection(Router $router): NetworkOperationResult
+    {
+        return new NetworkOperationResult(true, 'ok');
+    }
+
+    public function createPppoeAccount(Router $router, array $account): NetworkOperationResult
+    {
+        return new NetworkOperationResult(true, 'ok');
+    }
+
+    public function enablePppoeAccount(Router $router, string $username): NetworkOperationResult
+    {
+        $this->operations[] = 'ENABLE_PPPOE';
+
+        return new NetworkOperationResult(true, 'ok');
+    }
+
+    public function disablePppoeAccount(Router $router, string $username): NetworkOperationResult
+    {
+        $this->operations[] = 'DISABLE_PPPOE';
+
+        return new NetworkOperationResult(true, 'ok');
+    }
+
+    public function changePppoeProfile(Router $router, string $username, string $profile): NetworkOperationResult
+    {
+        return new NetworkOperationResult(true, 'ok');
+    }
+
+    public function disconnectPppoeSession(Router $router, string $username): NetworkOperationResult
+    {
+        $this->operations[] = 'DISCONNECT_SESSION';
+
+        return new NetworkOperationResult(true, 'ok');
     }
 }

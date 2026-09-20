@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"cosmiclink/network-engine/internal/credentials"
 	"cosmiclink/network-engine/internal/network"
 )
 
@@ -36,6 +37,55 @@ func TestNewMutationProviderRejectsRouterOSUntilASafeProviderExists(t *testing.T
 		t.Fatalf("routeros selection must return no provider, got %#v", selected)
 	}
 }
+
+func TestNewRouterOSMutationProviderRequiresOperatorResolverAndUsesTypedTransport(t *testing.T) {
+	transport := &recordingMutationTransport{}
+	resolver := newOperatorResolverForTest()
+	readTransport := &sequencedMutationReadTransport{responses: []map[string]string{{".id": "*7", "name": "alice", "disabled": "true"}, {".id": "*7", "name": "alice", "disabled": "false"}}}
+	selected, err := NewRouterOSMutationProvider(resolver, resolver, func() RouterOSMutationTransport { return transport }, func() RouterOSTransport { return readTransport })
+	if err != nil {
+		t.Fatalf("NewRouterOSMutationProvider failed: %v", err)
+	}
+
+	result := selected.EnableAccount(context.Background(), network.Request{
+		ProtocolVersion: "routeros-mutation.v1",
+		OperationID:     "op-enable",
+		IdempotencyKey:  "idem-enable",
+		RequestDigest:   "digest-enable",
+		ExecutionID:     "exec-enable",
+		TenantRef:       "tenant-1", RouterRef: "router-1", AgentRef: "agent-1", InstallationID: "install-1", Operation: "ENABLE_PPPOE",
+		CredentialRef: "operator-ref", CredentialPurpose: "OPERATOR", CredentialVersion: 1,
+		ObserverCredentialRef: "observer-ref", ObserverPurpose: "OBSERVER", ObserverCredentialVersion: 1,
+		TargetIdentityRef: "*7", AccountRef: "alice", Host: "router.test", Port: 8728, Transport: "api", ConnectTimeoutSeconds: 1, ReadTimeoutSeconds: 1, Parameters: map[string]any{},
+	})
+	if !result.Success || result.Code != "ACCOUNT_ENABLED" {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(transport.writes) != 1 || transport.writes[0].Sentence() != "/ppp/secret/set =.id=*7 =disabled=no" {
+		t.Fatalf("writes = %#v", transport.writes)
+	}
+	if transport.connections != 1 || transport.closes != 1 {
+		t.Fatalf("transport lifecycle = connects:%d closes:%d", transport.connections, transport.closes)
+	}
+}
+
+type sequencedMutationReadTransport struct {
+	responses []map[string]string
+	index     int
+}
+
+func (t *sequencedMutationReadTransport) Connect(context.Context, network.DiscoveryConnection) error {
+	return nil
+}
+func (t *sequencedMutationReadTransport) Read(context.Context, string) ([]map[string]string, error) {
+	row := t.responses[len(t.responses)-1]
+	if t.index < len(t.responses) {
+		row = t.responses[t.index]
+		t.index++
+	}
+	return []map[string]string{row}, nil
+}
+func (t *sequencedMutationReadTransport) Close() error { return nil }
 
 func TestNewMutationProviderFailsClosedForEveryOtherSelection(t *testing.T) {
 	for _, name := range []string{"", "   ", "Fake", "FAKE", " fake", "fake ", "RouterOS", "routeros ", "simulated", "none", "go", "mysql", "unknown"} {
@@ -162,3 +212,39 @@ func (broadOnlySimulation) DisconnectSession(context.Context, network.Request) n
 }
 
 var _ network.Provider = broadOnlySimulation{}
+
+func newOperatorResolverForTest() credentials.Resolver {
+	resolver := credentials.NewFakeResolver()
+	resolver.SetRecord(credentials.Reference{
+		TenantRef: "tenant-1", RouterRef: "router-1", AgentRef: "agent-1", InstallationID: "install-1",
+		CredentialRef: "operator-ref", Purpose: credentials.PurposeOperator, Version: 1,
+	}, credentials.CredentialRecord{Status: credentials.CredentialStatusActive, Username: "operator", Secret: []byte("synthetic-only")})
+	resolver.SetRecord(credentials.Reference{
+		TenantRef: "tenant-1", RouterRef: "router-1", AgentRef: "agent-1", InstallationID: "install-1",
+		CredentialRef: "observer-ref", Purpose: credentials.PurposeObserver, Version: 1,
+	}, credentials.CredentialRecord{Status: credentials.CredentialStatusActive, Username: "observer", Secret: []byte("synthetic-observer")})
+	return resolver
+}
+
+type recordingMutationTransport struct {
+	writes      []RouterOSPreparedWrite
+	connections int
+	closes      int
+}
+
+func (t *recordingMutationTransport) Connect(context.Context, network.DiscoveryConnection) error {
+	t.connections++
+	return nil
+}
+
+func (t *recordingMutationTransport) Write(_ context.Context, prepared RouterOSPreparedWrite) error {
+	t.writes = append(t.writes, prepared)
+	return nil
+}
+
+func (t *recordingMutationTransport) Close() error {
+	t.closes++
+	return nil
+}
+
+var _ RouterOSMutationTransport = (*recordingMutationTransport)(nil)

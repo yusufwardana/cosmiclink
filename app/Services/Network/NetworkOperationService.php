@@ -94,8 +94,9 @@ class NetworkOperationService
     {
         $started = Carbon::now();
         $safePayload = $this->sanitize($payload);
-        if (! $controlled || ! in_array($operation, self::CONTROLLED_OPERATIONS, true)) {
-            $result = $callback();
+        $defaultFakeSimulation = $this->driver instanceof FakeNetworkDriver && config('network.mutations_enabled', false) === false;
+        if (! $controlled || ! in_array($operation, self::CONTROLLED_OPERATIONS, true) || $defaultFakeSimulation) {
+            $result = $defaultFakeSimulation && $account ? $callback($account) : $callback();
             NetworkOperationLog::create([
                 'tenant_id' => $router->tenant_id,
                 'router_id' => $router->id,
@@ -137,42 +138,39 @@ class NetworkOperationService
         }
         $idempotencyKey ??= $this->defaultIdempotencyKey($operation, $currentRouter, $currentTarget, $currentPayload, $currentAccount);
         $requestDigest = hash('sha256', json_encode([$operation, $currentRouter->tenant_id, $currentRouter->id, $currentAccount->id, $currentTarget, $currentPayload], JSON_THROW_ON_ERROR));
+        $executionId = 'network-operation-'.bin2hex(random_bytes(16));
         $scope = 'account:'.$currentAccount->id;
-        $reservation = $this->reserve($currentRouter, $currentAccount, $connection, $operation, $currentTarget, $currentPayload, $user, $idempotencyKey, $requestDigest, $scope, $started);
+        $reservation = $this->reserve($currentRouter, $currentAccount, $connection, $operation, $currentTarget, $currentPayload, $user, $idempotencyKey, $requestDigest, $executionId, $scope, $started);
 
         if ($reservation instanceof NetworkOperationResult) {
             return $reservation;
         }
 
         try {
-            $result = $callback($currentAccount);
+            $job = app(NetworkAgentService::class)->createMutationJob($reservation, $currentAccount, $user);
         } catch (\Throwable) {
-            $result = new NetworkOperationResult(false, 'Network operation failed.', 'NETWORK_ENGINE_UNAVAILABLE');
+            $reservation->update([
+                'status' => 'failed',
+                'outcome' => 'FAILED',
+                'result_payload' => ['successful' => false, 'message' => 'Controlled mutation job could not be created.', 'data' => []],
+                'error_message' => 'Controlled mutation job could not be created.',
+                'failure_code' => 'MUTATION_JOB_CREATION_FAILED',
+                'completed_at' => Carbon::now(),
+            ]);
+
+            return new NetworkOperationResult(false, 'Controlled mutation job could not be created.', 'MUTATION_JOB_CREATION_FAILED');
         }
 
-        $outcome = $this->outcomeFor($result);
-        $status = match ($outcome) {
-            'SUCCEEDED' => 'success',
-            'UNKNOWN_OUTCOME' => 'unknown',
-            'POSTFLIGHT_MISMATCH' => 'postflight_mismatch',
-            default => 'failed',
-        };
-
-        $reservation->update([
-            'status' => $status,
-            'outcome' => $outcome,
-            'result_payload' => $this->sanitize(['successful' => $result->successful, 'message' => $result->message, 'data' => $result->data]),
-            'error_message' => $result->successful ? null : $result->message,
-            'failure_code' => $result->successful ? null : $result->errorCode,
-            'completed_at' => Carbon::now(),
+        return new NetworkOperationResult(false, 'Controlled network operation accepted for Agent execution.', 'NETWORK_OPERATION_PENDING', [
+            'network_operation_log_id' => $reservation->id,
+            'network_agent_job_id' => $job->id,
+            'execution_id' => $reservation->execution_id,
         ]);
-
-        return $result;
     }
 
-    private function reserve(Router $router, ?NetworkAccount $account, ?CustomerConnection $connection, string $operation, ?string $target, array $payload, ?User $user, string $idempotencyKey, string $requestDigest, string $scope, Carbon $started): NetworkOperationLog|NetworkOperationResult
+    private function reserve(Router $router, ?NetworkAccount $account, ?CustomerConnection $connection, string $operation, ?string $target, array $payload, ?User $user, string $idempotencyKey, string $requestDigest, string $executionId, string $scope, Carbon $started): NetworkOperationLog|NetworkOperationResult
     {
-        return DB::transaction(function () use ($router, $account, $connection, $operation, $target, $payload, $user, $idempotencyKey, $requestDigest, $scope, $started): NetworkOperationLog|NetworkOperationResult {
+        return DB::transaction(function () use ($router, $account, $connection, $operation, $target, $payload, $user, $idempotencyKey, $requestDigest, $executionId, $scope, $started): NetworkOperationLog|NetworkOperationResult {
             if ($account) {
                 NetworkAccount::query()->whereKey($account->id)->lockForUpdate()->firstOrFail();
             } else {
@@ -186,6 +184,15 @@ class NetworkOperationService
                 }
                 if (in_array($existing->outcome, ['SUCCEEDED', 'FAILED'], true)) {
                     return new NetworkOperationResult((bool) data_get($existing->result_payload, 'successful'), (string) data_get($existing->result_payload, 'message', ''), $existing->failure_code, (array) data_get($existing->result_payload, 'data', []));
+                }
+                if ($existing->status === 'reserved' && $existing->outcome === null) {
+                    $job = $existing->agentJob()->first();
+
+                    return new NetworkOperationResult(false, 'Controlled network operation is pending Agent execution.', 'NETWORK_OPERATION_PENDING', [
+                        'network_operation_log_id' => $existing->id,
+                        'network_agent_job_id' => $job?->id,
+                        'execution_id' => $existing->execution_id,
+                    ]);
                 }
 
                 return new NetworkOperationResult(false, 'A conflicting network operation is unresolved.', 'CONCURRENT_OPERATION');
@@ -219,6 +226,7 @@ class NetworkOperationService
                 'operation' => $operation,
                 'idempotency_key' => $idempotencyKey,
                 'request_digest' => $requestDigest,
+                'execution_id' => $executionId,
                 'provider' => config('network.mutation_provider', 'fake'),
                 'execution_mode' => config('network.mutation_provider', 'fake') === 'fake' ? 'simulation' : 'real',
                 'target' => $target,
@@ -230,21 +238,6 @@ class NetworkOperationService
                 'created_at' => Carbon::now(),
             ]);
         });
-    }
-
-    private function outcomeFor(NetworkOperationResult $result): string
-    {
-        if ($result->successful) {
-            return 'SUCCEEDED';
-        }
-        if ($result->errorCode === 'POSTFLIGHT_MISMATCH') {
-            return 'POSTFLIGHT_MISMATCH';
-        }
-        if (in_array($result->errorCode, self::AMBIGUOUS_FAILURE_CODES, true)) {
-            return 'UNKNOWN_OUTCOME';
-        }
-
-        return 'FAILED';
     }
 
     private function defaultIdempotencyKey(string $operation, Router $router, ?string $target, array $payload, ?NetworkAccount $account): string
