@@ -99,12 +99,24 @@ than console pages — density is the list page's one loud decision.
 - Diagnostic console pages may use compact terminal headers (`label // ordinal`),
   segmented readouts and apparatus grids, but never fabricate status or code
   content: all values remain bound to existing records.
+- Dashboard console rhythm is compact by default: the telemetry strip and
+  primary diagnostic row use `--cl-space-lg` or less; the apparatus connectors
+  are short; secondary actions remain compact instead of filling the panel.
+- The fixed topbar owns an opaque safe area (`--cl-topbar-safe-h`) so scrolling
+  records never bleed underneath the diagnostic header. Scroll anchors use the
+  same offset; the progress line remains the highest shell layer.
+- Motion is dependency-free and operational: real metric values may count up
+  once with `requestAnimationFrame`; the shell may show a 2px scroll progress
+  line on long pages. GSAP, Framer Motion, parallax and cursor effects are out
+  of scope. Reduced-motion users receive final values and no smooth scrolling.
 
 ## Microinteractions stance
 - Silent success. No toasts. `.alert` carries errors and validation only.
 - Hover delay 0, focus delay 0. Focus rings appear instantly — never
   transitioned in.
 - No confirmation dialog for a reversible row action.
+- Async monitoring errors use an assertive live region; icon-only controls carry
+  an accessible label or title.
 - Tables keep the hover row tint. No row lift, no shadow, no stripe.
 
 ## CTA voice
