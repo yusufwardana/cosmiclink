@@ -195,6 +195,7 @@ final class ManagedTargetIdentityService
         ?RouterResourceIdentity $identity = null,
         ?Carbon $observedAt = null,
         ?string $reasonCode = null,
+        array $extraEvidence = [],
     ): ManagedTargetPreflightEvidence {
         $observedAt ??= now();
         $sessionCount = count($this->activeSessionProjections($account));
@@ -213,7 +214,7 @@ final class ManagedTargetIdentityService
             'account_identity_fingerprint' => $account->router_identity_fingerprint,
             'routeros_version' => $account->routeros_version,
             'active_session_count' => $sessionCount,
-            'evidence' => array_merge($identity?->projection() ?? [], [
+            'evidence' => array_merge($identity?->projection() ?? [], $extraEvidence, [
                 'operation' => $operation,
                 'outcome' => $outcome,
                 'reason_code' => $reasonCode,

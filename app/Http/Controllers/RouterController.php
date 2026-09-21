@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Router;
+use App\Models\NetworkAgent;
 use App\Services\Network\NetworkOperationService;
+use App\Services\Network\ObserverReferenceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -82,5 +84,33 @@ class RouterController extends Controller
         $router->update(['status' => 'unavailable']);
 
         return back()->withErrors(['router' => $result->message]);
+    }
+
+    public function bindObserverReference(Request $request, Router $router, ObserverReferenceService $references)
+    {
+        Gate::authorize('operate', $router);
+        $data = $request->validate([
+            'agent_ref' => ['required', 'string', 'max:191'],
+            'installation_id' => ['required', 'string', 'max:191'],
+            'credential_ref' => ['required', 'string', 'max:191'],
+            'purpose' => ['required', 'in:OBSERVER'],
+            'version' => ['required', 'integer', 'min:1'],
+            'status' => ['required', 'in:ACTIVE,REVOKED,RETIRED'],
+        ]);
+        $agent = NetworkAgent::query()->where('tenant_id', $router->tenant_id)->where('identifier', $data['agent_ref'])->firstOrFail();
+        $reference = array_merge($data, ['tenant_ref' => (string) $router->tenant_id, 'router_ref' => (string) $router->id]);
+        $router = $references->bind($router, $agent, $reference);
+
+        return response()->json(['router_ref' => (string) $router->id, 'agent_ref' => $agent->identifier, 'migration_state' => $router->observer_migration_state]);
+    }
+
+    public function activateObserverReference(Request $request, Router $router, ObserverReferenceService $references)
+    {
+        Gate::authorize('operate', $router);
+        $data = $request->validate(['agent_ref' => ['required', 'string', 'max:191']]);
+        $agent = NetworkAgent::query()->where('tenant_id', $router->tenant_id)->where('identifier', $data['agent_ref'])->firstOrFail();
+        $router = $references->activate($router, $agent);
+
+        return response()->json(['router_ref' => (string) $router->id, 'agent_ref' => $agent->identifier, 'migration_state' => $router->observer_migration_state]);
     }
 }

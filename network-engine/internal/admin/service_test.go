@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"cosmiclink/network-engine/internal/adminprotocol"
 	"cosmiclink/network-engine/internal/agent"
+	"cosmiclink/network-engine/internal/credentials"
 )
 
 func testService(t *testing.T) (*Service, string) {
@@ -92,6 +94,88 @@ func TestServiceRejectsOperatorPayload(t *testing.T) {
 	_, err := service.Handle(context.Background(), adminprotocol.Request{Version: adminprotocol.Version, Operation: adminprotocol.AddObserver, Payload: json.RawMessage(`{"tenant_ref":"t","router_ref":"r","username":"operator","secret":"sentinel","purpose":"OPERATOR"}`)})
 	if !errors.Is(err, adminprotocol.ErrMalformed) {
 		t.Fatalf("crafted purpose error=%v", err)
+	}
+}
+
+func TestLocalValidationPurposeAndIntegrity(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("production DPAPI provider is Windows-only")
+	}
+	for _, purpose := range []credentials.Purpose{credentials.PurposeObserver, credentials.PurposeOperator} {
+		for _, scenario := range []string{"valid", "revoked", "retired", "tenant", "router", "agent", "installation", "purpose", "unsupported", "version", "reference", "ciphertext"} {
+			t.Run(string(purpose)+"/"+scenario, func(t *testing.T) {
+				service, dir := testService(t)
+				handle(t, service, adminprotocol.StoreInit, adminprotocol.StoreInitPayload{})
+				store, inst, err := service.open(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				ref := credentials.Reference{TenantRef: "tenant-1", RouterRef: "router-1", AgentRef: inst.AgentRef, InstallationID: inst.InstallationID, CredentialRef: uuid(), Purpose: purpose, Version: 1}
+				if err := store.Insert(context.Background(), ref, "LOCAL_TEST_USER", []byte("LOCAL_TEST_SECRET")); err != nil {
+					t.Fatal(err)
+				}
+				store.Close()
+				db, err := sql.Open("sqlite", filepath.Join(dir, "credentials.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				// Simulate a corrupted legacy row in this isolated test vault.
+				if scenario == "unsupported" {
+					db.SetMaxOpenConns(1)
+					if _, err := db.Exec("PRAGMA ignore_check_constraints = ON"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				updates := map[string]string{
+					"revoked": "status = 'REVOKED'", "retired": "status = 'RETIRED'",
+					"tenant": "tenant_ref = 'other'", "router": "router_ref = 'other'", "agent": "agent_ref = 'other'",
+					"installation": "installation_id = 'other'", "unsupported": "purpose = 'UNSUPPORTED'",
+					"ciphertext": "encrypted_secret = X'00'",
+				}
+				if purpose == credentials.PurposeOperator {
+					updates["purpose"] = "purpose = 'OBSERVER'"
+				} else {
+					updates["purpose"] = "purpose = 'OPERATOR'"
+				}
+				if update, ok := updates[scenario]; ok {
+					if _, err := db.Exec("UPDATE credentials SET "+update+" WHERE credential_ref = ?", ref.CredentialRef); err != nil {
+						t.Fatal(err)
+					}
+				}
+				payload := adminprotocol.CredentialPayload{CredentialRef: ref.CredentialRef, Version: 1}
+				if scenario == "version" {
+					payload.Version = 0
+				}
+				if scenario == "reference" {
+					payload.CredentialRef = "missing"
+				}
+				encoded, _ := json.Marshal(payload)
+				result, err := service.Handle(context.Background(), adminprotocol.Request{Version: adminprotocol.Version, Operation: adminprotocol.TestLocal, Payload: encoded})
+				if scenario == "valid" {
+					if err != nil {
+						t.Fatal(err)
+					}
+					response := result.(CredentialResult)
+					if response.LocalValidation != "completed" || response.HardwareAccess != "not_performed" {
+						t.Fatal("incorrect validation semantics")
+					}
+					metadata := handle(t, service, adminprotocol.Inspect, payload).(Metadata)
+					if metadata.Purpose != purpose || metadata.LastValidatedAt == nil {
+						t.Fatal("purpose changed or evidence missing")
+					}
+				} else if err == nil {
+					t.Fatal("invalid vault/reference passed")
+				}
+				responseBytes, _ := json.Marshal(result)
+				logBytes, _ := os.ReadFile(filepath.Join(dir, "audit", "credential-admin.log"))
+				for _, text := range []string{string(responseBytes), string(logBytes)} {
+					if strings.Contains(text, "LOCAL_TEST_SECRET") || strings.Contains(text, "LOCAL_TEST_USER") {
+						t.Fatal("secret-bearing validation output")
+					}
+				}
+			})
+		}
 	}
 }
 

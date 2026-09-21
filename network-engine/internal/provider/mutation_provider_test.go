@@ -69,6 +69,41 @@ func TestNewRouterOSMutationProviderRequiresOperatorResolverAndUsesTypedTranspor
 	}
 }
 
+// The Core canonicalises RouterOS `.id` spellings (lowercase hex) while the
+// device reports its own spelling, so the write must address the identity the
+// read-only preflight actually observed. Otherwise a real write can never match
+// the target even though preflight passed.
+func TestRouterOSMutationProviderWritesTheIdentityObservedByPreflight(t *testing.T) {
+	transport := &recordingMutationTransport{}
+	resolver := newOperatorResolverForTest()
+	readTransport := &sequencedMutationReadTransport{responses: []map[string]string{
+		{".id": "*1D", "name": "cosmiclink-test", "disabled": "true"},
+		{".id": "*1D", "name": "cosmiclink-test", "disabled": "false"},
+	}}
+	selected, err := NewRouterOSMutationProvider(resolver, resolver, func() RouterOSMutationTransport { return transport }, func() RouterOSTransport { return readTransport })
+	if err != nil {
+		t.Fatalf("NewRouterOSMutationProvider failed: %v", err)
+	}
+
+	result := selected.EnableAccount(context.Background(), network.Request{
+		ProtocolVersion: "routeros-mutation.v1",
+		OperationID:     "op-enable-hex",
+		IdempotencyKey:  "idem-enable-hex",
+		RequestDigest:   "digest-enable-hex",
+		ExecutionID:     "exec-enable-hex",
+		TenantRef:       "tenant-1", RouterRef: "router-1", AgentRef: "agent-1", InstallationID: "install-1", Operation: "ENABLE_PPPOE",
+		CredentialRef: "operator-ref", CredentialPurpose: "OPERATOR", CredentialVersion: 1,
+		ObserverCredentialRef: "observer-ref", ObserverPurpose: "OBSERVER", ObserverCredentialVersion: 1,
+		TargetIdentityRef: "*1d", AccountRef: "cosmiclink-test", Host: "router.test", Port: 8728, Transport: "api", ConnectTimeoutSeconds: 1, ReadTimeoutSeconds: 1, Parameters: map[string]any{},
+	})
+	if !result.Success || result.Code != "ACCOUNT_ENABLED" {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(transport.writes) != 1 || transport.writes[0].Sentence() != "/ppp/secret/set =.id=*1D =disabled=no" {
+		t.Fatalf("writes = %#v", transport.writes)
+	}
+}
+
 type sequencedMutationReadTransport struct {
 	responses []map[string]string
 	index     int

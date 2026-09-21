@@ -218,7 +218,9 @@ func (s *Service) single(ctx context.Context, op adminprotocol.Operation, p admi
 		return result, nil
 	}
 	if op == adminprotocol.TestLocal {
-		if ref.Purpose != credentials.PurposeObserver {
+		// Local integrity validation supports both purposes; it never proves
+		// RouterOS authentication or permissions and never changes purpose.
+		if ref.Purpose != credentials.PurposeObserver && ref.Purpose != credentials.PurposeOperator {
 			return nil, ErrLocalValidation
 		}
 		if _, err := store.Resolve(ctx, ref); err != nil {

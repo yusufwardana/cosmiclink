@@ -52,6 +52,12 @@ type JobResolver interface {
 	ResolveJob(context.Context, CredentialResolutionJob) (credentials.ResolvedCredential, error)
 }
 
+// ObserverMetadataResolver exposes only typed credential metadata. It never
+// returns usernames, secrets, or decrypted credential material.
+type ObserverMetadataResolver interface {
+	ListObserverMetadata(context.Context) ([]credentials.CredentialMetadata, error)
+}
+
 // LazyProductionResolver opens the existing local vault only when a reference
 // is used. It never initializes installation state or creates a store.
 type LazyProductionResolver struct {
@@ -83,6 +89,32 @@ func (r *LazyProductionResolver) Resolve(ctx context.Context, ref credentials.Re
 
 func (r *LazyProductionResolver) ResolveJob(ctx context.Context, job CredentialResolutionJob) (credentials.ResolvedCredential, error) {
 	return r.Resolve(ctx, credentials.Reference{TenantRef: job.TenantRef, RouterRef: job.RouterRef, AgentRef: job.AgentRef, InstallationID: credentials.InstallationIdentity(job.InstallationID), CredentialRef: job.CredentialRef, Purpose: credentials.Purpose(job.CredentialPurpose), Version: job.CredentialVersion})
+}
+
+func (r *LazyProductionResolver) ListObserverMetadata(ctx context.Context) ([]credentials.CredentialMetadata, error) {
+	if r == nil || r.dataDir == "" {
+		return nil, credentials.ErrCredentialReferenceInvalid
+	}
+	installation, err := OpenInstallation(ctx, r.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	store, err := OpenCredentialStore(ctx, r.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	items, err := store.ListMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]credentials.CredentialMetadata, 0, len(items))
+	for _, item := range items {
+		if item.Purpose == credentials.PurposeObserver && item.Status == credentials.CredentialStatusActive && item.AgentRef == installation.AgentRef && item.InstallationID == installation.InstallationID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 func NewAgentCredentialResolver(store *credentials.Store, installationID credentials.InstallationIdentity) (*AgentCredentialResolver, error) {
@@ -129,6 +161,23 @@ func (r *AgentCredentialResolver) ResolveJob(ctx context.Context, job Credential
 		InstallationID: credentials.InstallationIdentity(job.InstallationID), CredentialRef: job.CredentialRef,
 		Purpose: credentials.Purpose(job.CredentialPurpose), Version: job.CredentialVersion,
 	})
+}
+
+func (r *AgentCredentialResolver) ListObserverMetadata(ctx context.Context) ([]credentials.CredentialMetadata, error) {
+	if r == nil || r.store == nil {
+		return nil, credentials.ErrCredentialReferenceInvalid
+	}
+	items, err := r.store.ListMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]credentials.CredentialMetadata, 0, len(items))
+	for _, item := range items {
+		if item.Purpose == credentials.PurposeObserver && item.Status == credentials.CredentialStatusActive && item.InstallationID == r.installationID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 // CredentialResolutionEvidence is safe to return to a synthetic consumer.

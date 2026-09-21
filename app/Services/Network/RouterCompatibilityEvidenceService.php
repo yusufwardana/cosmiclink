@@ -60,10 +60,16 @@ class RouterCompatibilityEvidenceService
             return $this->decision(false, 'VERSION_UNSUPPORTED', $provider, $executionMode, $snapshot->id, $version, $rawVersion, $identity);
         }
 
-        return $this->decision(true, 'COMPATIBLE', $provider, $executionMode, $snapshot->id, $version, $rawVersion, $identity);
+        // Real-hardware authorization is never assumed from compatible v6
+        // evidence: it requires an explicit, unrevoked, exactly scoped
+        // acceptance whose recorded evidence still matches what was observed.
+        $acceptance = app(RouterHardwareAcceptanceService::class)
+            ->authorizes($router, self::TARGET, $version, $identity, $device['architecture'] ?? null);
+
+        return $this->decision(true, 'COMPATIBLE', $provider, $executionMode, $snapshot->id, $version, $rawVersion, $identity, $acceptance, $acceptance);
     }
 
-    private function decision(bool $compatible, string $reason, string $provider, string $executionMode, ?int $snapshotId = null, ?string $version = null, ?string $rawVersion = null, ?string $observedIdentity = null): RouterCompatibilityDecision
+    private function decision(bool $compatible, string $reason, string $provider, string $executionMode, ?int $snapshotId = null, ?string $version = null, ?string $rawVersion = null, ?string $observedIdentity = null, bool $realProviderCompatible = false, bool $hardwareAccepted = false): RouterCompatibilityDecision
     {
         return new RouterCompatibilityDecision(
             compatible: $compatible,
@@ -71,9 +77,9 @@ class RouterCompatibilityEvidenceService
             target: self::TARGET,
             configuredProvider: $provider,
             executionMode: $executionMode,
-            realProviderCompatible: false,
+            realProviderCompatible: $realProviderCompatible,
             architectureSupported: $provider === 'fake' || $provider === 'routeros',
-            hardwareAccepted: false,
+            hardwareAccepted: $hardwareAccepted,
             snapshotId: $snapshotId,
             routerOsVersion: $version,
             rawRouterOsVersion: $rawVersion,

@@ -83,6 +83,35 @@ func TestProductionAgentFreshBootstrapInitializesAndReopensLocalState(t *testing
 	}
 }
 
+func TestProductionAgentPersistsTokenForRestartRecovery(t *testing.T) {
+	dataDir := t.TempDir()
+	core := provisioningCore(t, provisioningAgentRef, http.StatusOK)
+	defer core.Close()
+
+	first := New(Config{CoreURL: core.URL, Token: "production-agent-token", DataDir: dataDir, Timeout: time.Second}, provider.NewFakeDiscoveryProvider(), nil)
+	if err := first.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenPath := filepath.Join(dataDir, "agent-token.protected")
+	if _, err := os.Stat(tokenPath); err != nil {
+		t.Fatalf("protected Agent token was not persisted: %v", err)
+	}
+
+	second := New(Config{CoreURL: core.URL, DataDir: dataDir, Timeout: time.Second}, provider.NewFakeDiscoveryProvider(), nil)
+	recovered, err := ResolveToken(context.Background(), dataDir, second.config.Token)
+	if err != nil {
+		t.Fatalf("restart token recovery failed: %v", err)
+	}
+	second.config.Token = recovered
+	if err := second.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if second.bootstrap.AgentRef() != provisioningAgentRef {
+		t.Fatalf("recovered Agent reference = %q", second.bootstrap.AgentRef())
+	}
+}
+
 func TestProductionAgentRestartPreservesInstallationAndKey(t *testing.T) {
 	dataDir := t.TempDir()
 	core := provisioningCore(t, provisioningAgentRef, http.StatusOK)

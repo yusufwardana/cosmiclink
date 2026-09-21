@@ -167,6 +167,29 @@ func (a *Agent) SyncObserverMetadata(ctx context.Context, metadata credentials.C
 	return a.requestStrict(ctx, "/api/v1/agent/observer-references/sync", payload, nil)
 }
 
+func (a *Agent) syncActiveObserverMetadata(ctx context.Context) error {
+	resolver, ok := a.credentialResolver.(ObserverMetadataResolver)
+	if !ok {
+		return nil
+	}
+	items, err := resolver.ListObserverMetadata(ctx)
+	if err != nil {
+		return err
+	}
+	for _, metadata := range items {
+		if metadata.Purpose != credentials.PurposeObserver || metadata.Status != credentials.CredentialStatusActive || metadata.Version < 1 || metadata.CredentialRef == "" {
+			continue
+		}
+		if metadata.AgentRef != "" && metadata.AgentRef != a.bootstrap.AgentRef() {
+			return credentials.ErrCredentialInstallationMismatch
+		}
+		if err := a.SyncObserverMetadata(ctx, metadata); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *Agent) heartbeat(ctx context.Context) error {
 	if a.bootstrapErr != nil {
 		return provisioningError(a.bootstrapErr)
@@ -184,6 +207,9 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		err = a.bootstrap.Bind(ctx, encoded)
 		if err == nil && a.config.DataDir != "" {
 			err = provisionLocalInstallation(ctx, a.config.DataDir)
+		}
+		if err == nil && a.config.DataDir != "" && a.config.Token != "" {
+			err = StoreProtectedAgentToken(ctx, a.config.DataDir, a.config.Token)
 		}
 	}
 	if err == nil {
@@ -250,6 +276,9 @@ func (a *Agent) RunOnce(ctx context.Context) error {
 	}
 	if a.lastHeartbeat.IsZero() || time.Since(a.lastHeartbeat) >= a.config.HeartbeatInterval {
 		if err := a.heartbeat(ctx); err != nil {
+			return err
+		}
+		if err := a.syncActiveObserverMetadata(ctx); err != nil {
 			return err
 		}
 	}

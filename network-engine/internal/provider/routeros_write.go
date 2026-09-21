@@ -28,10 +28,12 @@ var (
 	ErrInvalidRouterOSResourceID = errors.New("invalid RouterOS resource identity")
 
 	// realRouterOSID is a bare MikroTik identity: ".id=*7" or a short name made of
-	// a conservative character class. Semicolons, quotes, equals signs, control
+	// a conservative character class. RouterOS `.id` values are hex, so both
+	// spellings the Core canonicalises to must be accepted and the given
+	// spelling is preserved verbatim. Semicolons, quotes, equals signs, control
 	// characters, whitespace and traversal sequences cannot match, and names are
 	// capped at 32 characters so an over-long value is rejected outright.
-	realRouterOSID = regexp.MustCompile(`\A(?:\*[0-9]{1,9}|[A-Za-z0-9][A-Za-z0-9._-]{0,31})\z`)
+	realRouterOSID = regexp.MustCompile(`\A(?:\*[0-9A-Fa-f]{1,9}|[A-Za-z0-9][A-Za-z0-9._-]{0,31})\z`)
 )
 
 // allowedRouterOSWrite describes one approved sentence: a fixed path plus the

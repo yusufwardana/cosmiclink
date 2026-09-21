@@ -60,6 +60,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/routers/create', [RouterController::class, 'create'])->name('routers.create');
     Route::resource('routers', RouterController::class)->except(['create']);
     Route::post('/routers/{router}/test', [RouterController::class, 'test'])->name('routers.test');
+    Route::post('/routers/{router}/observer-reference/bind', [RouterController::class, 'bindObserverReference'])->name('routers.observer-reference.bind');
+    Route::post('/routers/{router}/observer-reference/activate', [RouterController::class, 'activateObserverReference'])->name('routers.observer-reference.activate');
     Route::get('/network/accounts', [NetworkAccountController::class, 'index'])->name('network.accounts.index');
     Route::get('/network/agents', [NetworkAgentController::class, 'index'])->name('network.agents.index');
     Route::get('/network/agents/{agent}', [NetworkAgentController::class, 'show'])->name('network.agents.show');

@@ -18,19 +18,36 @@
         </include>
     </source>
     <php>
-        <env name="APP_ENV" value="testing"/>
-        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <server name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" force="true"/>
         <env name="APP_URL" value="http://localhost"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="redis"/>
         <env name="CACHE_PREFIX" value="cosmiclink_test_cache_"/>
-        <env name="DB_CONNECTION" value="pgsql"/>
-        <env name="DB_HOST" value="127.0.0.1"/>
-        <env name="DB_PORT" value="5432"/>
-        <env name="DB_DATABASE" value="cosmiclink_test"/>
-        <env name="DB_USERNAME" value="cosmiclink_app"/>
-        <env name="DB_PASSWORD" value=""/>
+        <!--
+            Forced env entries pin getenv() and $_ENV; matching server entries
+            pin $_SERVER, which Laravel reads first. Keep both sets in sync so
+            ambient shell values cannot redirect the test database.
+            Tests\Support\TestDatabaseGuard re-checks the live database name on
+            every application boot and refuses to run if it is not
+            cosmiclink_test. Do not relax either of these without a reason.
+        -->
+        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_HOST" value="127.0.0.1" force="true"/>
+        <env name="DB_PORT" value="5432" force="true"/>
+        <env name="DB_DATABASE" value="cosmiclink_test" force="true"/>
+        <env name="DB_USERNAME" value="cosmiclink_app" force="true"/>
+        <env name="DB_PASSWORD" value="" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <server name="DB_CONNECTION" value="pgsql"/>
+        <server name="DB_HOST" value="127.0.0.1"/>
+        <server name="DB_PORT" value="5432"/>
+        <server name="DB_DATABASE" value="cosmiclink_test"/>
+        <server name="DB_USERNAME" value="cosmiclink_app"/>
+        <server name="DB_PASSWORD" value=""/>
+        <server name="DB_URL" value=""/>
         <env name="REDIS_CLIENT" value="phpredis"/>
         <env name="REDIS_HOST" value="127.0.0.1"/>
         <env name="REDIS_PORT" value="6379"/>

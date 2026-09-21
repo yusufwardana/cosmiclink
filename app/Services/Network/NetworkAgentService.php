@@ -29,6 +29,24 @@ class NetworkAgentService
         });
     }
 
+    /**
+     * Rotate the bearer credential in place without changing the logical Agent.
+     * The raw token is returned only to the privileged caller once; Core stores
+     * only its hash and the previous credential becomes invalid atomically.
+     */
+    public function rotate(NetworkAgent $agent): array
+    {
+        return DB::transaction(function () use ($agent) {
+            $agent = NetworkAgent::query()->lockForUpdate()->findOrFail($agent->id);
+            $secret = Str::random(64);
+            $id = bin2hex(random_bytes(16));
+            $agent->forceFill(['token_id' => $id, 'token_hash' => Hash::make($secret)])->save();
+            $this->event($agent, 'AGENT_TOKEN_ROTATED');
+
+            return [$agent->fresh(), $id.'.'.$secret];
+        });
+    }
+
     public function authenticate(?string $token): ?NetworkAgent
     {
         if (! is_string($token) || $token === '' || strlen($token) > 256) {

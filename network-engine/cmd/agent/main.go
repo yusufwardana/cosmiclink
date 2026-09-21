@@ -20,8 +20,14 @@ import (
 func main() {
 	coreURL, token := os.Getenv("COSMICLINK_CORE_URL"), os.Getenv("COSMICLINK_AGENT_TOKEN")
 	dataDir := os.Getenv("COSMICLINK_AGENT_DATA_DIR")
-	if coreURL == "" || token == "" || dataDir == "" {
-		slog.Error("COSMICLINK_CORE_URL, COSMICLINK_AGENT_TOKEN, and COSMICLINK_AGENT_DATA_DIR are required")
+	if coreURL == "" || dataDir == "" {
+		slog.Error("COSMICLINK_CORE_URL and COSMICLINK_AGENT_DATA_DIR are required")
+		os.Exit(1)
+	}
+	var tokenErr error
+	token, tokenErr = agent.ResolveToken(context.Background(), dataDir, token)
+	if tokenErr != nil {
+		slog.Error("Agent credential unavailable", "code", "AGENT_TOKEN_UNAVAILABLE")
 		os.Exit(1)
 	}
 	u, parseErr := url.Parse(coreURL)

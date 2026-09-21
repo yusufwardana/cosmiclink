@@ -83,7 +83,15 @@ func (p *RouterOSMutationProvider) execute(ctx context.Context, request network.
 		return mutationFailure(request, "ROUTER_UNAVAILABLE", "RouterOS mutation connection failed")
 	}
 	defer transport.Close()
-	prepared, err := PrepareRouterOSWrite(operation, request.TargetIdentityRef)
+	// The write addresses the identity the read-only preflight observed on the
+	// device. The Core stores its own canonical spelling of a RouterOS `.id`, and
+	// only the device's own spelling is guaranteed to address the sentence that
+	// preflight just verified, so the request reference is never trusted verbatim.
+	observedIdentity := request.TargetIdentityRef
+	if identity, ok := preflight["identity"].(string); ok && identity != "" {
+		observedIdentity = identity
+	}
+	prepared, err := PrepareRouterOSWrite(operation, observedIdentity)
 	if err != nil {
 		return mutationFailure(request, "MUTATION_NOT_ALLOWED", "RouterOS mutation is not allowlisted")
 	}
@@ -121,7 +129,7 @@ func (p *RouterOSMutationProvider) preflight(ctx context.Context, request networ
 		}
 		for _, row := range rows {
 			if externalRef(row) == request.TargetIdentityRef || row["name"] == request.AccountRef {
-				return map[string]any{"present": true}, false, nil
+				return map[string]any{"present": true, "identity": externalRef(row)}, false, nil
 			}
 		}
 		return map[string]any{"present": false}, true, nil

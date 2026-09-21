@@ -56,6 +56,11 @@ func TestPrepareRouterOSWriteBuildsOnlyTheApprovedSentences(t *testing.T) {
 	}{
 		{operation: network.MutationEnablePPPoE, identity: "*7", path: "/ppp/secret/set", words: []string{"=.id=*7", "=disabled=no"}},
 		{operation: network.MutationDisablePPPoE, identity: "*7", path: "/ppp/secret/set", words: []string{"=.id=*7", "=disabled=yes"}},
+		// RouterOS `.id` values are hex, and the Core canonicalises them to
+		// lowercase while the device reports its own spelling. Both forms must
+		// prepare, and the given spelling is preserved verbatim.
+		{operation: network.MutationEnablePPPoE, identity: "*1D", path: "/ppp/secret/set", words: []string{"=.id=*1D", "=disabled=no"}},
+		{operation: network.MutationDisablePPPoE, identity: "*1d", path: "/ppp/secret/set", words: []string{"=.id=*1d", "=disabled=yes"}},
 		{operation: network.MutationDisconnectSession, identity: "*3", path: "/ppp/active/remove", words: []string{"=.id=*3"}},
 	}
 	for _, testCase := range cases {
