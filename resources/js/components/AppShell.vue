@@ -38,7 +38,7 @@ const groups = [
     { label: 'Overview', links: [{ label: 'Dashboard', icon: 'dashboard', route: 'dashboard', href: '/dashboard' }] },
     { label: 'Customers', links: [{ label: 'Customers', icon: 'customers', route: 'customers.index', href: '/customers' }] },
     { label: 'Billing', links: [{ label: 'Invoices', icon: 'invoices', route: 'billing.invoices.index', href: '/billing/invoices' }, { label: 'Payments', icon: 'payments', route: 'billing.payments.index', href: '/billing/payments' }] },
-    { label: 'Network', links: [{ label: 'Routers', icon: 'routers', route: 'routers.index', href: '/routers' }, { label: 'Network accounts', icon: 'accounts', route: 'network.accounts.index', href: '/network/accounts' }, { label: 'Discovery', icon: 'monitoring', route: 'network.discovery.index', href: '/network/discovery' }, { label: 'Monitoring', icon: 'monitoring', route: 'monitoring.index', href: '/monitoring' }] },
+    { label: 'Network', links: [{ label: 'Routers', icon: 'routers', route: 'routers.index', href: '/routers' }, { label: 'Network accounts', icon: 'accounts', route: 'network.accounts.index', href: '/network/accounts' }, { label: 'Discovery', icon: 'monitoring', route: 'network.discovery.index', href: '/network/discovery' }, { label: 'Monitoring', icon: 'monitoring', route: 'monitoring.index', href: '/monitoring' }, { label: 'Traffic Intelligence', icon: 'monitoring', route: 'traffic.index', href: '/traffic' }] },
     { label: 'Operations', links: [{ label: 'Outage incidents', icon: 'outages', route: 'monitoring.index', href: '/monitoring#outage-incidents', hash: '#outage-incidents' }, { label: 'Messages', icon: 'messages', route: 'messages.index', href: '/messages' }] },
     { label: 'System', links: [{ label: 'Operation logs', icon: 'logs', route: 'network.logs.index', href: '/network/logs' }] },
 ];
@@ -51,6 +51,7 @@ const titles = {
     'routers.index': 'Routers', 'routers.show': 'Router', 'routers.edit': 'Edit router', 'routers.create': 'New router',
     'network.accounts.index': 'Network accounts', 'network.discovery.index': 'Read-only discovery', 'network.logs.index': 'Operation logs',
     'monitoring.index': 'Monitoring console', 'monitoring.incidents.show': 'Outage incident', 'monitoring.history': 'Health history',
+    'traffic.index': 'Traffic Intelligence',
     'messages.index': 'Messages',
     'packages.index': 'Packages', 'packages.create': 'New package', 'packages.show': 'Package', 'packages.edit': 'Edit package',
 };

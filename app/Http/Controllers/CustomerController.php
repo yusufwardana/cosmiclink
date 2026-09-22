@@ -42,8 +42,18 @@ class CustomerController extends Controller
         });
         $recentIncidents = OutageIncident::where('tenant_id', Auth::user()->tenant_id)->whereIn('status', ['detected', 'acknowledged', 'resolved'])->whereHas('affectedConnections', fn ($query) => $query->whereIn('customer_connections.id', $customer->connections->pluck('id')))->with('router')->latest('detected_at')->limit(5)->get();
         $recentLogs = NetworkOperationLog::where('tenant_id', Auth::user()->tenant_id)->whereIn('customer_connection_id', $customer->connections->pluck('id'))->with('customerConnection')->latest('created_at')->limit(10)->get();
+        $trafficConnections = $customer->connections
+            ->filter(fn ($connection) => $connection->tenant_id === Auth::user()->tenant_id && $connection->networkAccount !== null)
+            ->map(fn ($connection) => [
+                'id' => $connection->id,
+                'code' => $connection->connection_code,
+                'router_id' => $connection->router_id,
+                'identity' => strtolower(trim((string) $connection->networkAccount->username)),
+            ])
+            ->values()
+            ->all();
 
-        return view('customers.show', compact('customer', 'recentLogs', 'recentIncidents'));
+        return view('customers.show', compact('customer', 'recentLogs', 'recentIncidents', 'trafficConnections'));
     }
 
     public function edit(Customer $customer)

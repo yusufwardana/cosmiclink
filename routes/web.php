@@ -15,6 +15,7 @@ use App\Http\Controllers\OperationLogController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\RouterController;
+use App\Http\Controllers\TrafficIntelligenceController;
 use App\Models\NetworkAccount;
 use App\Services\Network\NetworkOperationService;
 use Illuminate\Support\Facades\Route;
@@ -38,6 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/billing/payment-requests/{paymentRequest}/simulate-success', [PaymentRequestController::class, 'simulateSuccess'])->name('billing.payment-requests.simulate-success');
     Route::get('/messages', [MessageController::class, 'index'])->name('messages.index');
     Route::get('/monitoring', [MonitoringController::class, 'index'])->name('monitoring.index');
+    Route::get('/traffic', TrafficIntelligenceController::class)->name('traffic.index');
     Route::post('/monitoring/check', [MonitoringController::class, 'check'])->name('monitoring.check');
     Route::post('/monitoring/routers/{router}/observe', [MonitoringController::class, 'observeRouter'])->name('monitoring.routers.observe');
     Route::post('/monitoring/connections/{connection}/observe', [MonitoringController::class, 'observeConnection'])->name('monitoring.connections.observe');
