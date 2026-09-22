@@ -2,12 +2,28 @@ import './bootstrap';
 import { createApp } from 'vue';
 import AppShell from './components/AppShell.vue';
 import MonitoringPage from './modules/monitoring/MonitoringPage.vue';
+import TrafficIntelligencePage from './modules/traffic/TrafficIntelligencePage.vue';
+import CustomerTrafficPanel from './modules/traffic/CustomerTrafficPanel.vue';
 
 const shell = document.getElementById('cosmiclink-shell');
 if (shell) createApp(AppShell, { baseUrl: shell.dataset.baseUrl, csrfToken: shell.dataset.csrfToken, currentRoute: shell.dataset.currentRoute, tenant: shell.dataset.tenant, operator: shell.dataset.operator, simulation: shell.dataset.simulation === 'true' }).mount(shell);
 
 const monitoring = document.getElementById('monitoring-vue');
 if (monitoring) createApp(MonitoringPage, { baseUrl: monitoring.dataset.baseUrl, simulation: monitoring.dataset.simulation === 'true' }).mount(monitoring);
+
+const traffic = document.getElementById('traffic-intelligence-vue');
+if (traffic) {
+    let filters = { routers: [], customers: [], connections: [], packages: [] };
+    try { filters = { ...filters, ...JSON.parse(traffic.dataset.filters || '{}') }; } catch (parseError) { /* Blade always renders JSON; keep empty filters. */ }
+    createApp(TrafficIntelligencePage, { baseUrl: traffic.dataset.baseUrl || '', filters }).mount(traffic);
+}
+
+const customerTraffic = document.getElementById('customer-traffic-vue');
+if (customerTraffic) {
+    let connections = [];
+    try { connections = JSON.parse(customerTraffic.dataset.connections || '[]'); } catch (parseError) { connections = []; }
+    createApp(CustomerTrafficPanel, { baseUrl: customerTraffic.dataset.baseUrl || '', connections }).mount(customerTraffic);
+}
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const counters = () => document.querySelectorAll('[data-counter]');

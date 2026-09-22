@@ -569,6 +569,29 @@ html, body { overflow-x: clip; }
     .cosmic-terminal__cursor { animation: none; opacity: 1; }
 }
 
+/* ── Traffic Intelligence (Phase 6K) ──────────────────────────
+   Traffic-only additions. Layout, stat, panel, table, badge, and alert
+   vocabulary above is reused unchanged. */
+.traffic-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--cl-space-xs) var(--cl-space-sm); margin-bottom: var(--cl-space-md); }
+.traffic-controls:last-child { margin-bottom: 0; }
+.traffic-controls label { display: flex; flex-direction: column; gap: 4px; color: var(--cl-muted); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); font-weight: 500; letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+.traffic-controls select { min-height: 30px; padding: 5px 10px; border: var(--cl-rule) solid var(--cl-hairline-2); border-radius: var(--cl-radius-sm); color: var(--cl-ink-2); background: var(--cl-canvas-2); font-family: var(--cl-font-body); font-size: var(--cl-text-sm); letter-spacing: 0; text-transform: none; }
+.traffic-chart { display: block; width: 100%; height: auto; }
+.traffic-chart__grid { stroke: var(--cl-hairline-soft); stroke-width: 1; }
+.traffic-chart__tick { fill: var(--cl-faint); font-family: var(--cl-font-label); font-size: 10px; }
+.traffic-chart__series { stroke-width: 2; }
+.traffic-chart__series--download { stroke: var(--cl-cyan); }
+.traffic-chart__series--upload { stroke: var(--cl-brass); }
+.traffic-chart__area { fill: var(--cl-cyan-soft); }
+.traffic-chart__bar { fill: var(--cl-cyan); }
+.traffic-chart__dot { fill: var(--cl-canvas-2); stroke-width: 2; }
+.traffic-chart__dot--download { stroke: var(--cl-cyan); }
+.traffic-interfaces { border-top: 2px solid var(--cl-hairline-2); }
+@media (max-width: 720px) {
+    .traffic-controls label { width: 100%; }
+    .traffic-controls select { width: 100%; }
+}
+
 
 
 

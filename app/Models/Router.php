@@ -70,4 +70,19 @@ class Router extends Model
     {
         return $this->hasMany(ReconciliationEvidence::class);
     }
+
+    public function trafficCollections()
+    {
+        return $this->hasMany(TrafficCollection::class);
+    }
+
+    public function trafficSamples()
+    {
+        return $this->hasMany(TrafficSample::class);
+    }
+
+    public function trafficBuckets()
+    {
+        return $this->hasMany(TrafficBucket::class);
+    }
 }

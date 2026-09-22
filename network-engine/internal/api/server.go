@@ -89,6 +89,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/disconnect", server.protected("DISCONNECT_SESSION", server.execute))
 	mux.HandleFunc("POST /v1/discovery/routers/{router_ref}", server.discoveryProtected)
 	mux.HandleFunc("POST /api/v1/monitoring/collect", server.monitoringProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/traffic/collect", server.trafficMonitoringProtected)
 	mux.HandleFunc("GET /v1/discovery/safety/mutation-count", server.mutationCount)
 
 	return mux
@@ -109,6 +110,7 @@ type monitoringRequest struct {
 	ConnectTimeoutSeconds int                     `json:"connect_timeout_seconds,omitempty"`
 	ReadTimeoutSeconds    int                     `json:"read_timeout_seconds,omitempty"`
 	InsecureTLS           bool                    `json:"insecure_tls,omitempty"`
+	IncludeEnrichment     bool                    `json:"include_enrichment,omitempty"`
 }
 
 func (server *Server) monitoringProtected(writer http.ResponseWriter, request *http.Request) {
@@ -148,6 +150,46 @@ func (server *Server) monitoringProtected(writer http.ResponseWriter, request *h
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"reachable": true, "collected_at": snapshot.CollectedAt, "identity": snapshot.Router.Identity, "version": snapshot.Router.Version, "architecture": snapshot.Router.Architecture, "board": snapshot.Router.BoardName, "uptime": snapshot.Router.UptimeSeconds, "cpu_load_percent": snapshot.Router.CPULoad, "memory_total_bytes": snapshot.Router.MemoryTotal, "memory_free_bytes": snapshot.Router.MemoryFree, "ppp_active": snapshot.PPPSessions})
+}
+
+func (server *Server) trafficMonitoringProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"reachable": false, "failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	provider, ok := server.monitoring.(monitoring.TrafficProvider)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"reachable": false, "failure": map[string]string{"code": "TRAFFIC_PROVIDER_UNAVAILABLE", "message": "Traffic monitoring provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || (command.Router.Host == "" && command.CredentialRef == "") {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"reachable": false, "failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid traffic monitoring request"}})
+		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
+	}
+	snapshot, err := provider.CollectTraffic(request.Context(), command.Router, monitoring.TrafficOptions{IncludeEnrichment: command.IncludeEnrichment})
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"reachable": true, "snapshot": snapshot})
 }
 
 // mutationCount reports the write counter of the provider that actually owns

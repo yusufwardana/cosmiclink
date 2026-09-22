@@ -11,6 +11,27 @@ class GoNetworkMonitoringClient
 {
     public function collect(Router $router): array
     {
+        $payload = $this->payloadFor($router);
+        if (isset($payload['failure'])) {
+            return $payload;
+        }
+
+        return $this->post('/api/v1/monitoring/collect', $payload);
+    }
+
+    public function collectTraffic(Router $router, bool $includeEnrichment): array
+    {
+        $payload = $this->payloadFor($router);
+        if (isset($payload['failure'])) {
+            return $payload;
+        }
+        $payload['include_enrichment'] = $includeEnrichment;
+
+        return $this->post('/api/v1/monitoring/traffic/collect', $payload);
+    }
+
+    private function payloadFor(Router $router): array
+    {
         if ($router->observer_migration_state === 'LOCAL_OBSERVER_ACTIVE') {
             try {
                 $reference = CredentialReference::fromRouter($router);
@@ -39,12 +60,17 @@ class GoNetworkMonitoringClient
             ]];
         }
 
+        return $payload;
+    }
+
+    private function post(string $path, array $payload): array
+    {
         try {
             $response = Http::acceptJson()->asJson()
                 ->withToken((string) config('network.go.token'))
                 ->connectTimeout((int) config('network.go.connect_timeout_seconds'))
                 ->timeout((int) config('network.go.timeout_seconds'))
-                ->post(rtrim((string) config('network.go.url'), '/').'/api/v1/monitoring/collect', $payload);
+                ->post(rtrim((string) config('network.go.url'), '/').$path, $payload);
         } catch (ConnectionException $exception) {
             return ['reachable' => false, 'failure' => ['code' => str_contains(strtolower($exception->getMessage()), 'timed out') ? 'MONITORING_TIMEOUT' : 'ENGINE_UNAVAILABLE', 'message' => 'Go Network Engine is unavailable.']];
         } catch (Throwable) {

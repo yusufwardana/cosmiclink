@@ -124,6 +124,25 @@
                 @endif
             </section>
 
+            <section class="panel" aria-labelledby="customer-traffic">
+                <div class="panel__head">
+                    <div>
+                        <p class="panel__kicker">Analytics</p>
+                        <h2 class="panel__title" id="customer-traffic">Traffic</h2>
+                    </div>
+                    <span class="panel__meta">read-only</span>
+                </div>
+                <div class="panel__body">
+                    <div
+                        id="customer-traffic-vue"
+                        data-base-url="{{ request()->getBaseUrl() }}"
+                        data-connections='@json($trafficConnections ?? [])'
+                    >
+                        <p class="empty-state">Loading traffic history — Today, 7 Days, and 30 Days controls appear here. If the connection has no linked account, no mapped identity will be shown.</p>
+                    </div>
+                </div>
+            </section>
+
             <section class="panel" aria-labelledby="customer-operations">
                 <div class="panel__head">
                     <div>
