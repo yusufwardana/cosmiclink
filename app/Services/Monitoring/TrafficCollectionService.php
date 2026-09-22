@@ -210,9 +210,21 @@ class TrafficCollectionService
         if ($sample->delta_status !== 'valid') {
             return;
         }
-        $this->incrementBucket($sample->source_type, $sample->source_key, $sample, $uploadDelta, $downloadDelta);
+        $bucketIdentity = $sample->source_type === 'simple_queue' && $sample->subject_key
+            ? strtolower(trim($sample->subject_key))
+            : $sample->source_key;
+        $this->incrementBucket(
+            $sample->source_type,
+            $bucketIdentity,
+            $sample,
+            $uploadDelta,
+            $downloadDelta,
+            $sample->metadata ?? [],
+            $sample->source_type === 'simple_queue' && ($sample->metadata['dynamic'] ?? null) === false,
+        );
         if ($sample->source_type === 'hotspot_session' && $sample->subject_key) {
-            $this->incrementBucket('hotspot_username', strtolower(trim($sample->subject_key)), $sample, $uploadDelta, $downloadDelta);
+            $username = strtolower(trim($sample->subject_key));
+            $this->incrementBucket('hotspot_username', $username, $sample, $uploadDelta, $downloadDelta, ['username' => $username], true);
         }
     }
 
@@ -237,7 +249,7 @@ class TrafficCollectionService
         return ['valid', $upload - $prior->upload_bytes, $download - $prior->download_bytes];
     }
 
-    private function incrementBucket(string $sourceType, string $subjectKey, TrafficSample $sample, int $upload, int $download): void
+    private function incrementBucket(string $sourceType, string $subjectKey, TrafficSample $sample, int $upload, int $download, array $metadata = [], bool $subscriberAuthoritative = false): void
     {
         $bucketAt = $sample->observed_at->copy()->second(0)->microsecond(0)->minute(intdiv($sample->observed_at->minute, 5) * 5);
         $bucket = TrafficBucket::query()->firstOrCreate([
@@ -246,11 +258,31 @@ class TrafficCollectionService
             'source_type' => $sourceType,
             'subject_key' => $subjectKey,
             'bucket_started_at' => $bucketAt,
-        ], ['upload_bytes' => 0, 'download_bytes' => 0, 'sample_count' => 0]);
+        ], [
+            'upload_bytes' => 0,
+            'download_bytes' => 0,
+            'sample_count' => 0,
+            'metadata' => $this->bucketMetadata($sourceType, $metadata),
+            'subscriber_authoritative' => $subscriberAuthoritative,
+        ]);
+        $bucket->metadata = $this->bucketMetadata($sourceType, $metadata);
+        $bucket->subscriber_authoritative = $subscriberAuthoritative;
         $bucket->upload_bytes += $upload;
         $bucket->download_bytes += $download;
         $bucket->sample_count++;
         $bucket->save();
+    }
+
+    private function bucketMetadata(string $sourceType, array $metadata): array
+    {
+        $allowed = match ($sourceType) {
+            'interface' => ['name', 'type', 'running', 'disabled'],
+            'simple_queue' => ['name', 'target', 'dynamic', 'disabled'],
+            'hotspot_username' => ['username'],
+            default => [],
+        };
+
+        return array_intersect_key($this->sanitize($metadata), array_flip($allowed));
     }
 
     private function counter(mixed $value): ?int

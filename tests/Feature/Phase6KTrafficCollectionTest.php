@@ -156,6 +156,44 @@ class Phase6KTrafficCollectionTest extends TestCase
         $this->assertDatabaseCount('traffic_buckets', 0);
     }
 
+    public function test_bucket_context_marks_only_authoritative_subscriber_sources(): void
+    {
+        $router = Router::factory()->for(Tenant::factory())->create();
+        $this->bindSnapshots([
+            $this->snapshot('2026-09-22T12:00:00Z',
+                interfaces: [['source_key' => '*1', 'name' => 'ether1-wan', 'type' => 'ether', 'upload_bytes' => 100, 'download_bytes' => 200]],
+                queues: [
+                    ['source_key' => '*Q1', 'subject_key' => '10.0.0.2/32', 'name' => 'static-client', 'target' => '10.0.0.2/32', 'dynamic' => false, 'upload_bytes' => 50, 'download_bytes' => 70],
+                    ['source_key' => '*Q2', 'subject_key' => 'alice', 'name' => '<hotspot-alice>', 'target' => 'alice', 'dynamic' => true, 'upload_bytes' => 30, 'download_bytes' => 40],
+                ],
+                hotspots: [['source_key' => 'session-a', 'subject_key' => 'alice', 'upload_bytes' => 10, 'download_bytes' => 20]]),
+            $this->snapshot('2026-09-22T12:01:00Z',
+                interfaces: [['source_key' => '*1', 'name' => 'ether1-wan', 'type' => 'ether', 'upload_bytes' => 130, 'download_bytes' => 250]],
+                queues: [
+                    ['source_key' => '*Q1', 'subject_key' => '10.0.0.2/32', 'name' => 'static-client', 'target' => '10.0.0.2/32', 'dynamic' => false, 'upload_bytes' => 60, 'download_bytes' => 90],
+                    ['source_key' => '*Q2', 'subject_key' => 'alice', 'name' => '<hotspot-alice>', 'target' => 'alice', 'dynamic' => true, 'upload_bytes' => 35, 'download_bytes' => 50],
+                ],
+                hotspots: [['source_key' => 'session-a', 'subject_key' => 'alice', 'upload_bytes' => 15, 'download_bytes' => 29]]),
+        ]);
+
+        $service = app(TrafficCollectionService::class);
+        $service->collectRouter($router);
+        $service->collectRouter($router->fresh());
+
+        $interface = TrafficBucket::where('source_type', 'interface')->sole();
+        $static = TrafficBucket::where('source_type', 'simple_queue')->where('subject_key', '10.0.0.2/32')->sole();
+        $dynamic = TrafficBucket::where('source_type', 'simple_queue')->where('subject_key', 'alice')->sole();
+        $hotspot = TrafficBucket::where('source_type', 'hotspot_username')->sole();
+
+        $this->assertSame(['name' => 'ether1-wan', 'type' => 'ether'], $interface->metadata);
+        $this->assertTrue($static->subscriber_authoritative);
+        $this->assertSame('10.0.0.2/32', $static->metadata['target']);
+        $this->assertFalse($dynamic->subscriber_authoritative);
+        $this->assertTrue($dynamic->metadata['dynamic']);
+        $this->assertTrue($hotspot->subscriber_authoritative);
+        $this->assertSame(['username' => 'alice'], $hotspot->metadata);
+    }
+
     private function bindSnapshots(array $snapshots): void
     {
         $client = Mockery::mock(GoNetworkMonitoringClient::class);

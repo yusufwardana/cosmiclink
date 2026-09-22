@@ -6,9 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class TrafficBucket extends Model
 {
-    protected $fillable = ['tenant_id', 'router_id', 'source_type', 'subject_key', 'bucket_started_at', 'upload_bytes', 'download_bytes', 'sample_count'];
+    protected $fillable = ['tenant_id', 'router_id', 'source_type', 'subject_key', 'bucket_started_at', 'upload_bytes', 'download_bytes', 'sample_count', 'metadata', 'subscriber_authoritative'];
 
-    protected $casts = ['bucket_started_at' => 'datetime', 'upload_bytes' => 'integer', 'download_bytes' => 'integer', 'sample_count' => 'integer'];
+    protected $casts = ['bucket_started_at' => 'datetime', 'upload_bytes' => 'integer', 'download_bytes' => 'integer', 'sample_count' => 'integer', 'metadata' => 'array', 'subscriber_authoritative' => 'boolean'];
 
     public function tenant()
     {
