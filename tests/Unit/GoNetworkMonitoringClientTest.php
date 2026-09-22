@@ -76,4 +76,54 @@ class GoNetworkMonitoringClientTest extends TestCase
 
         $this->assertTrue(app(GoNetworkMonitoringClient::class)->collect($router)['reachable']);
     }
+
+    public function test_it_collects_traffic_with_enrichment_and_sanitizes_nested_secrets(): void
+    {
+        config()->set('network.go.url', 'http://network-engine.test');
+        config()->set('network.go.token', 'shared-test-token');
+        config()->set('network.routeros', ['transport' => 'api_ssl', 'connect_timeout_seconds' => 3, 'read_timeout_seconds' => 5, 'insecure_tls' => false]);
+        $router = Router::factory()->for(Tenant::factory())->make(['host' => 'router.test', 'api_port' => 8729, 'username' => 'readonly']);
+        $router->setPassword('router-test-password');
+
+        Http::fake(function (Request $request) {
+            $this->assertSame('http://network-engine.test/api/v1/monitoring/traffic/collect', $request->url());
+            $this->assertTrue($request->data()['include_enrichment']);
+            $this->assertSame('router-test-password', data_get($request->data(), 'router.password'));
+
+            return Http::response([
+                'reachable' => true,
+                'snapshot' => ['interfaces' => [['source_key' => '*1', 'metadata' => ['authorization' => 'remove-me']]]],
+                'token' => 'remove-me',
+            ]);
+        });
+
+        $result = app(GoNetworkMonitoringClient::class)->collectTraffic($router, true);
+
+        $this->assertTrue($result['reachable']);
+        $this->assertArrayNotHasKey('token', $result);
+        $this->assertArrayNotHasKey('authorization', $result['snapshot']['interfaces'][0]['metadata']);
+        $this->assertStringNotContainsString('router-test-password', json_encode($result));
+    }
+
+    public function test_traffic_collection_uses_exact_observer_reference_and_validates_response(): void
+    {
+        config()->set('network.go.url', 'http://network-engine.test');
+        config()->set('network.go.token', 'shared-test-token');
+        config()->set('network.routeros', ['transport' => 'api_ssl', 'connect_timeout_seconds' => 3, 'read_timeout_seconds' => 5, 'insecure_tls' => false]);
+        $router = Router::factory()->for(Tenant::factory())->make(['id' => 42, 'tenant_id' => 7, 'host' => 'router.test', 'api_port' => 8729]);
+        $router->forceFill(['observer_agent_ref' => 'agent-1', 'observer_installation_id' => 'installation-1', 'observer_credential_ref' => 'cred-1', 'observer_credential_purpose' => 'OBSERVER', 'observer_credential_version' => 2, 'observer_credential_status' => 'ACTIVE', 'observer_migration_state' => 'LOCAL_OBSERVER_ACTIVE']);
+
+        Http::fake(function (Request $request) {
+            $this->assertSame('cred-1', $request->data()['credential_ref']);
+            $this->assertFalse($request->data()['include_enrichment']);
+            $this->assertArrayNotHasKey('router', $request->data());
+
+            return Http::response(['reachable' => 'yes']);
+        });
+
+        $result = app(GoNetworkMonitoringClient::class)->collectTraffic($router, false);
+
+        $this->assertFalse($result['reachable']);
+        $this->assertSame('ENGINE_UNAVAILABLE', $result['failure']['code']);
+    }
 }
