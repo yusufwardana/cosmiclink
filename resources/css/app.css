@@ -488,6 +488,64 @@ td.is-numeric, .cell-amount { font-family: var(--cl-font-label); font-variant-nu
 .section-block { margin-top: var(--cl-space-lg); }
 .empty-state--nominal { padding: var(--cl-space-sm) 0; color: var(--cl-muted); font-family: var(--cl-font-label); font-size: var(--cl-text-xs); letter-spacing: 0.02em; }
 
+/* ── Network Operations dashboard ───────────────────────────── */
+.noc-map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 330px); gap: var(--cl-space-lg); margin-top: var(--cl-space-lg); align-items: stretch; }
+.noc-map-section { min-width: 0; }
+.noc-map-section .panel__head { align-items: flex-end; }
+.noc-map-section .panel__actions { justify-content: flex-end; }
+.noc-search { width: min(210px, 28vw); min-height: 34px; padding: 7px 10px; border: 1px solid var(--cl-hairline-2); border-radius: var(--cl-radius-sm); color: var(--cl-ink); background: var(--cl-canvas-2); font-family: var(--cl-font-label); font-size: var(--cl-text-xs); }
+.noc-search:focus { border-color: var(--cl-focus); outline: 0; }
+.noc-map-body { min-height: 560px; padding: 0 !important; overflow: hidden; }
+.noc-loading { display: grid; min-height: 360px; place-items: center; padding: var(--cl-space-xl); }
+.topo-wrap { position: relative; min-height: 560px; height: 100%; background: var(--cl-canvas-2); background-image: linear-gradient(var(--cl-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--cl-grid-line) 1px, transparent 1px); background-size: 48px 48px; }
+.topo-canvas { position: absolute; inset: 0; min-height: 560px; }
+.topo-marker-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.topo-flow-marker { position: absolute; top: 0; left: 0; width: 8px; height: 8px; margin: -4px 0 0 -4px; border: 1px solid var(--cl-cyan); border-radius: 50%; background: var(--cl-ink); box-shadow: 0 0 0 3px var(--cl-cyan-soft), 0 0 14px var(--cl-cyan); will-change: transform; }
+.topo-tooltip { position: absolute; z-index: 4; display: grid; gap: 2px; max-width: 240px; padding: 7px 9px; border: 1px solid var(--cl-hairline-2); border-radius: var(--cl-radius-sm); color: var(--cl-ink); background: var(--cl-canvas); box-shadow: var(--cl-shadow-1); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); pointer-events: none; }
+.topo-tooltip span { color: var(--cl-muted); }
+.topo-controls { position: absolute; top: var(--cl-space-md); right: var(--cl-space-md); z-index: 2; display: flex; gap: 4px; padding: 4px; border: 1px solid var(--cl-hairline); border-radius: var(--cl-radius-sm); background: var(--cl-canvas); box-shadow: var(--cl-shadow-1); }
+.topo-btn { display: grid; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 3px; color: var(--cl-ink-2); background: transparent; font-family: var(--cl-font-label); font-size: 16px; line-height: 1; }
+.topo-btn:hover { color: var(--cl-ink); background: var(--cl-accent-soft); }
+.topo-hint { position: absolute; right: var(--cl-space-md); bottom: var(--cl-space-sm); left: var(--cl-space-md); z-index: 2; margin: 0; color: var(--cl-faint); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); text-align: center; pointer-events: none; }
+.noc-detail-aside { min-width: 0; }
+.detail-panel { height: 100%; border: 1px solid var(--cl-hairline); border-radius: var(--cl-radius-md); background: var(--cl-surface-1); overflow: hidden; }
+.detail-panel__head { display: grid; gap: 6px; padding: var(--cl-space-lg); border-bottom: 1px solid var(--cl-hairline); }
+.detail-panel__head .panel__kicker { margin: 0; }
+.detail-panel__head .panel__title { overflow-wrap: anywhere; }
+.detail-panel__body { padding: var(--cl-space-md) var(--cl-space-lg); }
+.detail-panel .spec { grid-template-columns: minmax(88px, .7fr) minmax(0, 1fr); }
+.detail-panel .spec__row { display: contents; }
+.detail-panel .spec__key, .detail-panel .spec__val { min-width: 0; padding: 9px 0; border-bottom: 1px solid var(--cl-hairline-soft); overflow-wrap: anywhere; }
+.detail-panel .spec__key { padding-right: var(--cl-space-sm); color: var(--cl-faint); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); text-transform: uppercase; }
+.detail-panel .spec__val { color: var(--cl-ink-2); font-size: var(--cl-text-xs); text-align: right; }
+.detail-divider { margin: var(--cl-space-md) 0; border: 0; border-top: 1px solid var(--cl-hairline); }
+.detail-panel__foot { margin-top: var(--cl-space-md); padding-top: var(--cl-space-md); border-top: 1px solid var(--cl-hairline); }
+.noc-bottom-row { margin-top: var(--cl-space-lg); }
+.noc-sub-list { display: grid; gap: 0; }
+.noc-sub-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(120px, 1fr) auto; gap: var(--cl-space-sm); align-items: center; padding: 10px 0; border-bottom: 1px solid var(--cl-hairline-soft); cursor: pointer; }
+.noc-sub-row:last-child { border-bottom: 0; }
+.noc-sub-row:hover, .noc-sub-row:focus-visible { color: var(--cl-ink); background: var(--cl-accent-soft); outline: 0; }
+.noc-sub-row--passive { cursor: default; }
+.noc-sub-row--passive:hover { background: transparent; }
+.noc-sub-name { min-width: 0; overflow: hidden; color: var(--cl-ink); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.noc-sub-target { min-width: 0; overflow: hidden; color: var(--cl-muted); font-size: var(--cl-text-micro); text-overflow: ellipsis; white-space: nowrap; }
+.noc-sub-usage { color: var(--cl-cyan); font-size: var(--cl-text-xs); text-align: right; white-space: nowrap; }
+
+@media (max-width: 980px) {
+    .noc-map-wrap { grid-template-columns: 1fr; }
+    .noc-detail-aside { min-height: auto; }
+    .detail-panel { height: auto; }
+}
+@media (max-width: 720px) {
+    .noc-map-section .panel__head { display: block; }
+    .noc-map-section .panel__actions { justify-content: flex-start; margin-top: var(--cl-space-sm); }
+    .noc-search { width: 100%; }
+    .noc-map-body, .topo-wrap, .topo-canvas { min-height: 440px; }
+    .topo-hint { font-size: 9px; }
+    .noc-sub-row { grid-template-columns: minmax(90px, 1fr) auto; }
+    .noc-sub-target { display: none; }
+}
+
 /* ── Responsive: reflow, never a flat stack of desktop cards ── */
 @media (max-width: 980px) {
     :root { --cl-sidebar-w: 232px; }

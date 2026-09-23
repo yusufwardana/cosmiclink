@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\AgentApiController;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Controllers\Api\V1\NetworkTopologyController;
 use App\Http\Controllers\Api\V1\TrafficAnalyticsController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware(['web', 'auth'])->group(function () {
     Route::get('/dashboard', [ApiController::class, 'dashboard'])->name('api.v1.dashboard');
+    Route::get('/topology', NetworkTopologyController::class)->name('api.v1.topology');
     Route::get('/customers', [ApiController::class, 'customers'])->name('api.v1.customers.index');
     Route::get('/customers/{customer}', [ApiController::class, 'customer'])->name('api.v1.customers.show');
     Route::get('/monitoring', [ApiController::class, 'monitoring'])->name('api.v1.monitoring.index');
