@@ -1,0 +1,6 @@
+<?php
+// Removed restart script.
+
+
+
+

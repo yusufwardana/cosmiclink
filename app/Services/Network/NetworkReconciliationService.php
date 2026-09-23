@@ -13,9 +13,18 @@ use Illuminate\Support\Facades\DB;
 
 class NetworkReconciliationService
 {
-    public function reconcile(Router $router): Collection
+    /**
+     * Classify every discovered resource of a router against its latest
+     * successful snapshot and return the status/suggestion rows.
+     *
+     * Evidence is append-only audit material produced by explicit or background
+     * reconciliation. A caller that only needs the in-memory classification to
+     * render or answer a read must pass `$persistEvidence = false`, so that
+     * viewing, filtering, paging, or polling a console never writes evidence.
+     */
+    public function reconcile(Router $router, bool $persistEvidence = true): Collection
     {
-        return DB::transaction(function () use ($router) {
+        return DB::transaction(function () use ($router, $persistEvidence) {
             $router = Router::query()->lockForUpdate()->findOrFail($router->id);
             $latestSnapshot = NetworkDiscoverySnapshot::query()
                 ->where('tenant_id', $router->tenant_id)
@@ -29,10 +38,17 @@ class NetworkReconciliationService
                 ->where('tenant_id', $router->tenant_id)
                 ->where('router_id', $router->id)
                 ->get()
-                ->map(function (DiscoveredNetworkResource $resource) use ($latestSnapshot, $router) {
+                ->map(function (DiscoveredNetworkResource $resource) use ($latestSnapshot, $router, $persistEvidence) {
                     $comparedResource = $this->currentResource($resource, $latestSnapshot);
                     $row = $this->reconcileResource($resource, $comparedResource, $latestSnapshot, $router);
-                    $this->persistEvidence($resource, $comparedResource, $latestSnapshot, $row['status']);
+
+                    // Evidence is append-only audit material. It is written by explicit
+                    // or background reconciliation, never by a GET that only needs the
+                    // in-memory classification — otherwise paging the Discovery console
+                    // or refreshing the API would fan out one evidence row per resource.
+                    if ($persistEvidence) {
+                        $this->persistEvidence($resource, $comparedResource, $latestSnapshot, $row['status']);
+                    }
 
                     return $row;
                 });

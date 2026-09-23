@@ -14,7 +14,17 @@ class RouterController extends Controller
 {
     public function index()
     {
-        return view('routers.index', ['routers' => Router::where('tenant_id', Auth::user()->tenant_id)->latest()->get()]);
+        $routers = Router::where('tenant_id', Auth::user()->tenant_id)->latest()->get();
+        $healthByRouter = \App\Models\HealthObservation::where('tenant_id', Auth::user()->tenant_id)
+            ->where('subject_type', 'router')
+            ->whereIn('subject_id', $routers->pluck('id'))
+            ->latest('observed_at')
+            ->get()
+            ->unique('subject_id')
+            ->keyBy('subject_id');
+        $routers->each(fn (Router $r) => $r->setRelation('networkHealth', $healthByRouter->get($r->id)));
+
+        return view('routers.index', compact('routers'));
     }
 
     public function create()
@@ -25,6 +35,11 @@ class RouterController extends Controller
     public function show(Router $router)
     {
         Gate::authorize('view', $router);
+        $health = \App\Models\HealthObservation::where('subject_type', 'router')
+            ->where('subject_id', $router->id)
+            ->latest('observed_at')
+            ->first();
+        $router->setRelation('networkHealth', $health);
 
         return view('routers.show', compact('router'));
     }

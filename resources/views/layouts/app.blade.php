@@ -18,7 +18,11 @@
     <div class="scroll-progress" data-scroll-progress role="progressbar" aria-label="Page reading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
     @auth
         <a class="skip-link" href="#main">Skip to operations content</a>
-        <div id="cosmiclink-shell" data-base-url="{{ request()->getBaseUrl() }}" data-csrf-token="{{ csrf_token() }}" data-current-route="{{ request()->route()?->getName() }}" data-tenant="{{ auth()->user()->tenant?->name }}" data-operator="{{ auth()->user()->name }}" data-simulation="{{ config('network.simulation') || config('monitoring.simulation') ? 'true' : 'false' }}"></div>
+        {{-- The global simulation marker follows the monitoring provider: it is the
+             source of the health evidence rendered on these pages. Network mutation
+             surfaces carry their own explicit markers on their own pages, so a real
+             RouterOS observation stream never renders as "simulation" here. --}}
+        <div id="cosmiclink-shell" data-base-url="{{ request()->getBaseUrl() }}" data-csrf-token="{{ csrf_token() }}" data-current-route="{{ request()->route()?->getName() }}" data-tenant="{{ auth()->user()->tenant?->name }}" data-operator="{{ auth()->user()->name }}" data-simulation="{{ config('monitoring.simulation') ? 'true' : 'false' }}"></div>
         <div class="app-main"><main class="content-wrap" id="main">@include('partials.flash') @yield('content')</main></div>
     @else
         <main class="guest-main" id="main">@include('partials.flash') @yield('content')</main>

@@ -587,13 +587,117 @@ html, body { overflow-x: clip; }
 .traffic-chart__dot { fill: var(--cl-canvas-2); stroke-width: 2; }
 .traffic-chart__dot--download { stroke: var(--cl-cyan); }
 .traffic-interfaces { border-top: 2px solid var(--cl-hairline-2); }
+/* The Discovery Simple Queue name is the row's primary identity and sits on
+   its own line above the raw target, which stays visible underneath. */
+.traffic-identity__name { display: block; }
 @media (max-width: 720px) {
     .traffic-controls label { width: 100%; }
     .traffic-controls select { width: 100%; }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   Discovery console
+   Read-only views over persisted discovery rows. The panel, stat, table,
+   badge, button, alert and spec vocabulary above is reused unchanged; only
+   the console's own furniture is named here.
+   ═════════════════════════════════════════════════════════════ */
 
+/* Router selector rows — same form, compact enough to read beside it. */
+.discovery-run { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cl-space-xs) var(--cl-space-sm); max-width: none; margin: 0; padding: 0; border: 0; background: none; }
+.discovery-run__router { color: var(--cl-ink); font-weight: 600; }
+.discovery-run select { width: auto; min-height: 30px; padding: 5px 10px; font-size: var(--cl-text-sm); }
+.discovery-run__device { flex-basis: 100%; margin: 0; }
 
+/* Source identification — where these rows actually came from. */
+.discovery-source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cl-space-2xs) var(--cl-space-lg); padding: 12px var(--cl-space-lg); border-bottom: var(--cl-rule) solid var(--cl-hairline); background: var(--cl-canvas-2); }
+.discovery-source__item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.discovery-source__label { color: var(--cl-faint); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+.discovery-source__value { overflow: hidden; color: var(--cl-ink); font-family: var(--cl-font-label); font-size: var(--cl-text-sm); text-overflow: ellipsis; white-space: nowrap; }
 
+/* Six counts in one row; the grid gap is the hairline between cards. */
+.stat-grid--discovery { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--cl-rule); margin: var(--cl-space-md) var(--cl-space-lg); background: var(--cl-hairline); }
+.stat-grid--discovery .stat-card { border: 0; background: var(--cl-surface-1); }
+.stat-grid--discovery .stat-card--interactive:hover { background: var(--cl-cyan-soft); }
+.stat-grid--discovery .stat-card__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-grid--discovery .stat-card__hint { font-size: var(--cl-text-xs); }
 
+/* A long prose subtitle has to be allowed to wrap; otherwise it pins the
+   panel head's count off-canvas on narrow screens. */
+.discovery-console .panel__head > div { min-width: 0; }
+.discovery-console .panel__head > div .panel__meta { white-space: normal; }
+.discovery-console .panel__head > span.panel__meta { flex: 0 0 auto; }
 
+/* Resource-type tabs — the counters are the persisted type counts. */
+.discovery-tabs { display: flex; flex-wrap: wrap; align-items: stretch; padding: 0 var(--cl-space-lg); border-top: var(--cl-rule) solid var(--cl-hairline); border-bottom: var(--cl-rule) solid var(--cl-hairline); background: color-mix(in oklch, var(--cl-surface-2) 72%, transparent); }
+.discovery-tab { display: inline-flex; align-items: baseline; gap: 7px; margin: 0 0 -1px; padding: 10px var(--cl-space-sm); border-bottom: 2px solid transparent; color: var(--cl-muted); font-family: var(--cl-font-label); font-size: var(--cl-text-xs); font-weight: 500; letter-spacing: var(--cl-tracking-label); text-transform: uppercase; white-space: nowrap; }
+.discovery-tab:hover { color: var(--cl-ink); border-bottom-color: var(--cl-hairline-2); }
+.discovery-tab--active, .discovery-tab--active:hover { color: var(--cl-ink); border-bottom-color: var(--cl-accent); }
+.discovery-tab__count { color: var(--cl-faint); font-variant-numeric: tabular-nums; }
+.discovery-tab--active .discovery-tab__count { color: var(--cl-cyan); }
+
+/* Operator controls — a GET form, so applying it never writes anything. */
+.discovery-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--cl-space-xs) var(--cl-space-sm); max-width: none; margin: 0; padding: 12px var(--cl-space-lg); border: 0; border-bottom: var(--cl-rule) solid var(--cl-hairline); border-radius: 0; background: none; }
+.discovery-filters label { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--cl-muted); font-family: var(--cl-font-label); font-size: var(--cl-text-micro); font-weight: 500; letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+.discovery-filters input, .discovery-filters select { width: auto; min-height: 30px; padding: 5px 10px; border: var(--cl-rule) solid var(--cl-hairline-2); border-radius: var(--cl-radius-sm); color: var(--cl-ink-2); background: var(--cl-canvas-2); font-family: var(--cl-font-body); font-size: var(--cl-text-sm); letter-spacing: 0; text-transform: none; }
+.discovery-filters__search { flex: 1 1 240px; }
+.discovery-filters__search input { width: 100%; }
+
+.discovery-table { min-width: 720px; }
+.discovery-row { cursor: pointer; }
+
+/* Server-side pager — CosmicLink buttons, not a second visual language. */
+.discovery-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cl-space-xs); padding: 14px var(--cl-space-lg); border-top: var(--cl-rule) solid var(--cl-hairline); }
+.discovery-pager .console-toolbar__note { margin: 0; }
+.discovery-pager__pages { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.discovery-pager__link { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; min-height: 28px; padding: 4px 9px; border: var(--cl-rule) solid var(--cl-hairline-2); border-radius: var(--cl-radius-sm); color: var(--cl-ink-2); background: transparent; font-family: var(--cl-font-label); font-size: var(--cl-text-micro); font-weight: 500; letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+.discovery-pager__link:hover { color: var(--cl-ink); background: var(--cl-surface-2); }
+.discovery-pager__link--current, .discovery-pager__link--current:hover { color: var(--cl-cyan-ink); background: var(--cl-cyan); border-color: var(--cl-cyan); }
+.discovery-pager__link--disabled { color: var(--cl-faint); border-color: var(--cl-hairline-soft); pointer-events: none; }
+.discovery-pager__gap { padding: 0 2px; color: var(--cl-faint); font-family: var(--cl-font-label); font-size: var(--cl-text-xs); }
+
+/* ── Resource detail ──────────────────────────────────────────
+   The readable facts use the existing .spec key/value grid; the raw payload
+   only ever appears folded away inside Technical details. */
+.discovery-detail { display: none; }
+.discovery-detail__facts dd em { display: block; margin-top: 3px; color: var(--cl-faint); font-family: var(--cl-font-body); font-size: var(--cl-text-xs); font-style: normal; }
+.discovery-adopt { margin-top: var(--cl-space-md); padding: var(--cl-space-md); border: var(--cl-rule) solid var(--cl-hairline); border-radius: var(--cl-radius-sm); background: var(--cl-canvas-2); }
+.discovery-adopt__title { margin: 0 0 var(--cl-space-2xs); }
+.discovery-adopt form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--cl-space-sm); max-width: none; margin: 0; padding: 0; border: 0; background: none; }
+.discovery-adopt label { flex: 1 1 260px; margin: 0; }
+.discovery-adopt .field-hint { margin-top: var(--cl-space-xs); }
+.discovery-technical { margin-top: var(--cl-space-md); border: var(--cl-rule) solid var(--cl-hairline); border-radius: var(--cl-radius-sm); background: var(--cl-canvas-2); }
+.discovery-technical > summary { padding: 11px var(--cl-space-md); color: var(--cl-muted); cursor: pointer; font-family: var(--cl-font-label); font-size: var(--cl-text-micro); font-weight: 500; letter-spacing: var(--cl-tracking-label); text-transform: uppercase; }
+.discovery-technical > summary:hover { color: var(--cl-ink); }
+.discovery-technical[open] > summary { border-bottom: var(--cl-rule) solid var(--cl-hairline); }
+.discovery-technical__body { padding: var(--cl-space-md); }
+.discovery-technical__body .spec dd { font-size: var(--cl-text-sm); }
+.discovery-code { max-height: 280px; margin: var(--cl-space-md) 0 0; padding: var(--cl-space-sm) var(--cl-space-md); overflow: auto; border: var(--cl-rule) solid var(--cl-hairline-soft); border-radius: var(--cl-radius-xs); color: var(--cl-ink-2); background: var(--cl-canvas); font-family: var(--cl-font-label); font-size: var(--cl-text-xs); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ── Detail drawer ────────────────────────────────────────────
+   A native dialog, so Escape, focus containment and the backdrop come from
+   the platform; the chrome is the panel's, unchanged. */
+.discovery-drawer { width: min(820px, calc(100vw - 24px)); max-height: min(90vh, 920px); margin: auto; padding: 0; overflow: hidden; border: var(--cl-rule) solid var(--cl-hairline-2); border-radius: var(--cl-radius-lg); color: var(--cl-ink-2); background: var(--cl-surface-1); box-shadow: var(--cl-shadow-2); }
+.discovery-drawer::backdrop { background: oklch(0% 0 0 / 0.62); }
+.discovery-drawer__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cl-space-sm); padding: 15px var(--cl-space-lg); border-bottom: var(--cl-rule) solid var(--cl-hairline); background: var(--cl-surface-1); }
+.discovery-drawer__head .panel__title { margin: 2px 0 0; overflow-wrap: anywhere; }
+.discovery-drawer__body { max-height: calc(min(90vh, 920px) - 78px); padding: var(--cl-space-md) var(--cl-space-lg) var(--cl-space-lg); overflow-y: auto; }
+
+/* ── Responsive: reflow the console, never a flat stack ─────── */
+@media (max-width: 1180px) {
+    .stat-grid--discovery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+    .stat-grid--discovery { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: var(--cl-space-md) 18px; }
+    .discovery-source { gap: var(--cl-space-2xs) var(--cl-space-md); padding: 11px 18px; }
+    .discovery-tabs { padding: 0 18px; }
+    .discovery-tab { padding: 9px; }
+    .discovery-filters { padding: 11px 18px; }
+    .discovery-filters label, .discovery-filters input, .discovery-filters select { width: 100%; }
+    .discovery-filters__search { flex-basis: 100%; }
+    .discovery-table { min-width: 640px; }
+    .discovery-pager { padding: 13px 18px; }
+    .discovery-adopt label { flex-basis: 100%; }
+    .discovery-drawer { width: 100vw; max-height: 100vh; border: 0; border-radius: 0; }
+    .discovery-drawer__head { padding: 13px 18px; }
+    .discovery-drawer__body { max-height: calc(100vh - 78px); padding: var(--cl-space-sm) 18px var(--cl-space-lg); }
+}

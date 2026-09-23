@@ -97,6 +97,11 @@ const interfacePeakLabel = computed(() => (interfacePeak.value?.hour ? formatHou
 const peakHourLabel = computed(() => (overviewPeak.value?.hour ? formatHourLabel(overviewPeak.value.hour) : '—'));
 const modeLabel = (key) => modes.find((entry) => entry.key === key)?.label ?? key;
 const identityName = (row) => row.customer?.name ?? row.connection?.code ?? row.package?.name ?? 'Unmapped network identity';
+// Identity precedence: customer mapped → adopted connection → discovered
+// Simple Queue name → raw target/IP. A customer mapping always outranks the
+// Discovery-only label, so Discovery is never read off a mapped row.
+const discoveryName = (row) => (row.mapped ? null : (row.discovery?.display_name ?? null));
+const discoveryBadge = (row) => (row.discovery?.management_state === 'ADOPTED' ? 'ui-status-badge--active' : 'ui-status-badge--unknown');
 </script>
 
 <template>
@@ -227,11 +232,16 @@ const identityName = (row) => row.customer?.name ?? row.connection?.code ?? row.
                     <thead><tr><th scope="col">Identity</th><th scope="col">Mapping</th><th scope="col">Upload</th><th scope="col">Download</th><th scope="col">Total</th></tr></thead>
                     <tbody>
                         <tr v-for="row in rankingRows" :key="`${row.router_id}-${row.identity}`">
-                            <td><span class="mono-value">{{ row.identity }}</span><span class="cell-sub">Router {{ row.router_id }}</span></td>
+                            <td>
+                                <span v-if="discoveryName(row)" class="cell-key traffic-identity__name">{{ discoveryName(row) }}</span>
+                                <span class="mono-value">{{ row.identity }}</span>
+                                <span class="cell-sub">Router {{ row.router_id }}</span>
+                            </td>
                             <td>
                                 <span v-if="row.mapped" class="ui-status-badge ui-status-badge--online">mapped</span>
+                                <span v-else-if="discoveryName(row)" class="ui-status-badge" :class="discoveryBadge(row)">{{ row.discovery.management_state }}</span>
                                 <span v-else class="ui-status-badge">Unmapped network identity</span>
-                                <span class="cell-sub">{{ identityName(row) }}</span>
+                                <span v-if="row.mapped || !discoveryName(row)" class="cell-sub">{{ identityName(row) }}</span>
                             </td>
                             <td class="mono-value">{{ formatBytes(row.upload_bytes) }}</td>
                             <td class="mono-value">{{ formatBytes(row.download_bytes) }}</td>

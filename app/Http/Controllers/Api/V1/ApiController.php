@@ -68,7 +68,9 @@ class ApiController extends Controller
     public function reconciliation(NetworkReconciliationService $reconciliation)
     {
         $tenant = Auth::user()->tenant_id;
-        $items = Router::where('tenant_id', $tenant)->get()->flatMap(fn (Router $router) => $reconciliation->reconcile($router));
+        // Read-only classification: this GET returns reconciliation status and
+        // suggestions but must not append reconciliation evidence.
+        $items = Router::where('tenant_id', $tenant)->get()->flatMap(fn (Router $router) => $reconciliation->reconcile($router, false));
 
         return response()->json(['data' => $items->map(fn (array $item) => [
             'resource' => $item['resource']->only(['id', 'router_id', 'name', 'resource_type', 'management_state', 'last_seen_at', 'normalized_data']),

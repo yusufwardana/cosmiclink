@@ -20,6 +20,21 @@ const lastObserved = computed(() => [...routers.value, ...connections.value].map
 const providers = computed(() => [...new Set([...routers.value, ...connections.value].map((item) => item.provider).filter(Boolean))]);
 const source = computed(() => data.value.source || (props.simulation ? 'SIMULATION' : 'REAL'));
 
+/* Real RouterOS telemetry rides along in the observation metadata written by the
+   read-only collector. Subjects observed without it (for example an unreachable
+   placeholder router) simply render without the telemetry readout. */
+const telemetry = (router) => (router.metadata && (router.metadata.version || router.metadata.board) ? router.metadata : null);
+const uptime = (seconds) => {
+    const total = Number(seconds);
+    if (!Number.isFinite(total) || total <= 0) return '—';
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+};
+
 /* Detected → acknowledged → resolved, driven by the incident record only. */
 const stages = (incident) => [
     { label: 'Detected', time: incident.detected_at, state: incident.status === 'detected' ? 'hot' : 'done' },
@@ -98,6 +113,14 @@ onMounted(load);
                     <span class="rack__field"><span class="rack__field-label">Latency</span><span class="rack__field-value">{{ metric(router.latency_ms, ' ms') }}</span></span>
                     <span class="rack__field"><span class="rack__field-label">Loss</span><span class="rack__field-value">{{ metric(router.packet_loss_percent, '%') }}</span></span>
                     <span class="rack__field"><span class="rack__field-label">Last observed</span><span class="rack__field-value">{{ stamp(router.observed_at) }}</span></span>
+                    <template v-if="telemetry(router)">
+                        <span class="rack__field"><span class="rack__field-label">Identity</span><span class="rack__field-value">{{ telemetry(router).identity || '—' }}</span></span>
+                        <span class="rack__field"><span class="rack__field-label">RouterOS</span><span class="rack__field-value">{{ telemetry(router).version || '—' }}</span></span>
+                        <span class="rack__field"><span class="rack__field-label">Board</span><span class="rack__field-value">{{ telemetry(router).board || '—' }}</span></span>
+                        <span class="rack__field"><span class="rack__field-label">Uptime</span><span class="rack__field-value">{{ uptime(telemetry(router).uptime_seconds) }}</span></span>
+                        <span class="rack__field"><span class="rack__field-label">CPU</span><span class="rack__field-value">{{ metric(telemetry(router).cpu_load_percent, '%') }}</span></span>
+                        <span class="rack__field"><span class="rack__field-label">Memory</span><span class="rack__field-value">{{ metric(telemetry(router).memory_used_percent, '% used') }}</span></span>
+                    </template>
                     <span v-if="simulation" class="rack__action">
                         <button type="button" class="button button--quiet button--sm" :disabled="busy === `router-${router.subject_id}`" @click="run(`router-${router.subject_id}`, `/api/v1/monitoring/routers/${router.subject_id}/simulation`, { state: router.health_state === 'offline' ? 'online' : 'offline' })">
                             Set {{ router.health_state === 'offline' ? 'online' : 'offline' }}

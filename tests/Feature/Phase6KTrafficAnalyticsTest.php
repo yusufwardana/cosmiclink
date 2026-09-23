@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Customer;
 use App\Models\CustomerConnection;
+use App\Models\DiscoveredNetworkResource;
 use App\Models\InternetPackage;
 use App\Models\NetworkAccount;
 use App\Models\Router;
@@ -11,11 +12,15 @@ use App\Models\Tenant;
 use App\Models\TrafficBucket;
 use App\Services\Monitoring\TrafficAnalyticsPeriod;
 use App\Services\Monitoring\TrafficAnalyticsService;
+use App\Services\Monitoring\TrafficCollectionService;
 use App\Services\Monitoring\TrafficConnectionMode;
+use App\Services\Network\GoNetworkMonitoringClient;
+use App\Services\Network\NetworkDiscoveryClient;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Tests\TestCase;
 
 class Phase6KTrafficAnalyticsTest extends TestCase
@@ -208,6 +213,126 @@ class Phase6KTrafficAnalyticsTest extends TestCase
         $this->assertLessThanOrEqual(5, $rankingQueries);
     }
 
+    public function test_static_queue_ranking_resolves_discovery_identity_on_the_same_router(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = Router::factory()->for($tenant)->create();
+        $this->queueResource($tenant, $router, 'Marji', '10.10.12.59/32');
+        $this->bucket($router, 'simple_queue', '10.10.12.59/32', '2026-09-22 10:00:00', 111, 222, true);
+
+        $rows = app(TrafficAnalyticsService::class)->rankSubscribers($tenant->id, $this->period('today'), TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('10.10.12.59/32', $rows[0]['identity']);
+        $this->assertSame('Marji', $rows[0]['discovery']['display_name']);
+        $this->assertSame('DISCOVERED', $rows[0]['discovery']['management_state']);
+        $this->assertFalse($rows[0]['mapped']);
+        // Identity enrichment must not touch accounting or aggregation.
+        $this->assertSame(111, $rows[0]['upload_bytes']);
+        $this->assertSame(222, $rows[0]['download_bytes']);
+        $this->assertSame(333, $rows[0]['total_bytes']);
+    }
+
+    public function test_discovery_identity_does_not_cross_match_the_same_ip_on_another_router(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $discovered = Router::factory()->for($tenant)->create();
+        $other = Router::factory()->for($tenant)->create();
+        $this->queueResource($tenant, $discovered, 'CrossMatch', '10.10.12.60/32');
+        $this->bucket($other, 'simple_queue', '10.10.12.60/32', '2026-09-22 10:00:00', 1, 2, true);
+
+        $rows = app(TrafficAnalyticsService::class)->rankSubscribers($tenant->id, $this->period('today'), TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($other->id, $rows[0]['router_id']);
+        $this->assertNull($rows[0]['discovery']);
+        $this->assertFalse($rows[0]['mapped']);
+    }
+
+    public function test_customer_mapping_takes_precedence_over_the_discovery_queue_label(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = Router::factory()->for($tenant)->create();
+        $this->queueResource($tenant, $router, 'Marji', '10.10.12.61/32');
+        $this->bucket($router, 'simple_queue', '10.10.12.61/32', '2026-09-22 10:00:00', 10, 20, true);
+        $customer = Customer::factory()->for($tenant)->create(['name' => 'Precedence Customer']);
+        $package = InternetPackage::factory()->for($tenant)->create();
+        $account = NetworkAccount::create(['tenant_id' => $tenant->id, 'router_id' => $router->id, 'username' => '10.10.12.61/32', 'profile' => 'default', 'status' => 'active']);
+        CustomerConnection::factory()->for($tenant)->for($customer)->for($router)->create(['internet_package_id' => $package->id, 'network_account_id' => $account->id]);
+
+        $rows = app(TrafficAnalyticsService::class)->rankSubscribers($tenant->id, $this->period('today'), TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10);
+
+        $this->assertCount(1, $rows);
+        $this->assertTrue($rows[0]['mapped']);
+        $this->assertSame(['id' => $customer->id, 'name' => 'Precedence Customer'], $rows[0]['customer']);
+        $this->assertNull($rows[0]['discovery']);
+    }
+
+    public function test_unmatched_static_queue_target_remains_unmapped_raw_ip(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = Router::factory()->for($tenant)->create();
+        $this->bucket($router, 'simple_queue', '10.10.12.77/32', '2026-09-22 10:00:00', 5, 7, true);
+
+        $rows = app(TrafficAnalyticsService::class)->rankSubscribers($tenant->id, $this->period('today'), TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10);
+
+        $this->assertCount(1, $rows);
+        $this->assertFalse($rows[0]['mapped']);
+        $this->assertNull($rows[0]['discovery']);
+        $this->assertSame('10.10.12.77/32', $rows[0]['identity']);
+    }
+
+    public function test_aggregate_network_targets_are_never_labeled_as_subscribers(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = Router::factory()->for($tenant)->create();
+        $multi = '10.10.11.0/24,10.10.12.0/24,10.10.14.0/24,192.168.5.0/24';
+        $subnet = '10.10.12.0/24';
+        // Persisted Discovery rows exist for BOTH aggregate targets, so only the
+        // aggregate guard — not a missing match — can keep them unnamed.
+        $this->queueResource($tenant, $router, 'ALL TRAFICK', $multi);
+        $this->queueResource($tenant, $router, '2.CLIEN HOTSPOT', $subnet);
+        $this->bucket($router, 'simple_queue', $multi, '2026-09-22 10:00:00', 900, 900, true);
+        $this->bucket($router, 'simple_queue', $subnet, '2026-09-22 10:05:00', 100, 100, true);
+
+        $rows = collect(app(TrafficAnalyticsService::class)->rankSubscribers($tenant->id, $this->period('today'), TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10));
+
+        $this->assertCount(2, $rows);
+        $this->assertEqualsCanonicalizing([$multi, $subnet], $rows->pluck('identity')->all());
+        foreach ($rows as $row) {
+            $this->assertNull($row['discovery'], "aggregate target [{$row['identity']}] was mislabeled as a subscriber");
+            $this->assertFalse($row['mapped']);
+        }
+    }
+
+    public function test_traffic_intelligence_reads_never_reach_routeros(): void
+    {
+        $tenant = Tenant::factory()->create();
+        $router = Router::factory()->for($tenant)->create();
+        $this->queueResource($tenant, $router, 'Marji', '10.10.12.59/32');
+        $this->bucket($router, 'simple_queue', '10.10.12.59/32', '2026-09-22 10:00:00', 3, 4, true);
+        $this->bucket($router, 'interface', 'wan', '2026-09-22 10:00:00', 1, 1, false);
+        $this->bucket($router, 'hotspot_username', 'alice', '2026-09-22 10:00:00', 1, 1, true);
+
+        $blast = fn () => throw new RuntimeException('A Traffic Intelligence read must never reach RouterOS.');
+        $this->app->bind(GoNetworkMonitoringClient::class, $blast);
+        $this->app->bind(NetworkDiscoveryClient::class, $blast);
+        $this->app->bind(TrafficCollectionService::class, $blast);
+
+        $service = app(TrafficAnalyticsService::class);
+        $period = $this->period('today');
+        $service->overview($tenant->id, $period);
+        $service->rankSubscribers($tenant->id, $period, TrafficConnectionMode::STATIC_SIMPLE_QUEUE, 'total', 10);
+        $service->rankSubscribers($tenant->id, $period, TrafficConnectionMode::HOTSPOT, 'download', 10);
+        $service->subscriberHistory($tenant->id, $period, TrafficConnectionMode::STATIC_SIMPLE_QUEUE, '10.10.12.59/32');
+        $service->interfaceHistory($tenant->id, $period);
+        $service->peakHours($tenant->id, $period);
+
+        // Reads create no collection, no RouterOS transport, no mutation.
+        $this->assertDatabaseCount('traffic_collections', 0);
+        $this->assertDatabaseCount('network_operation_logs', 0);
+    }
+
     private function period(string $key): TrafficAnalyticsPeriod
     {
         return TrafficAnalyticsPeriod::from($key, Carbon::now('UTC'));
@@ -226,6 +351,26 @@ class Phase6KTrafficAnalyticsTest extends TestCase
             'sample_count' => 1,
             'subscriber_authoritative' => $authoritative,
             'metadata' => $metadata,
+        ]);
+    }
+
+    /**
+     * A persisted REAL Discovery Simple Queue resource — the same shape the
+     * RouterOS read-only discovery path upserts (name + target metadata).
+     */
+    private function queueResource(Tenant $tenant, Router $router, string $name, string $target, string $state = 'DISCOVERED'): DiscoveredNetworkResource
+    {
+        return DiscoveredNetworkResource::create([
+            'tenant_id' => $tenant->id,
+            'router_id' => $router->id,
+            'resource_type' => 'queue',
+            'external_ref' => '*'.substr(sha1($router->id.$name.$target), 0, 12),
+            'name' => $name,
+            'management_state' => $state,
+            'fingerprint' => hash('sha256', $router->id.$name.$target),
+            'normalized_data' => ['name' => $name, 'target' => $target, 'dynamic' => false, 'disabled' => false],
+            'first_seen_at' => Carbon::now('UTC'),
+            'last_seen_at' => Carbon::now('UTC'),
         ]);
     }
 }

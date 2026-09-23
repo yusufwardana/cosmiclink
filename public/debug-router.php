@@ -1,0 +1,3 @@
+<?php
+// Debug script removed.
+

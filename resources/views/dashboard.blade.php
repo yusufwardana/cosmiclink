@@ -113,6 +113,18 @@
                 <div><dt>Accounts disabled</dt><dd class="mono-value">{{ $disabledAccounts }}</dd></div>
                 <div><dt>Suspended for billing</dt><dd class="mono-value">{{ $billingSuspendedConnections }}</dd></div>
             </dl>
+            @if ($routerTelemetry)
+                @php($uptimeSeconds = (int) ($routerTelemetry['uptime_seconds'] ?? 0))
+                <dl class="meta-list health-facts">
+                    <div><dt>Observed router</dt><dd class="mono-value">{{ $routerTelemetry['router'] ?? '—' }}</dd></div>
+                    <div><dt>Router identity</dt><dd class="mono-value">{{ $routerTelemetry['identity'] ?? '—' }}</dd></div>
+                    <div><dt>RouterOS version</dt><dd class="mono-value">{{ $routerTelemetry['version'] ?? '—' }}</dd></div>
+                    <div><dt>Board</dt><dd class="mono-value">{{ $routerTelemetry['board'] ?? '—' }}</dd></div>
+                    <div><dt>Uptime</dt><dd class="mono-value">{{ $uptimeSeconds > 0 ? intdiv($uptimeSeconds, 86400).'d '.intdiv($uptimeSeconds % 86400, 3600).'h '.intdiv($uptimeSeconds % 3600, 60).'m' : '—' }}</dd></div>
+                    <div><dt>CPU load</dt><dd class="mono-value">{{ isset($routerTelemetry['cpu_load_percent']) ? $routerTelemetry['cpu_load_percent'].'%' : '—' }}</dd></div>
+                    <div><dt>Memory used</dt><dd class="mono-value">{{ isset($routerTelemetry['memory_used_percent']) ? $routerTelemetry['memory_used_percent'].'%' : '—' }}</dd></div>
+                </dl>
+            @endif
         </div>
     </section>
 </div>

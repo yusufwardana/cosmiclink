@@ -20,19 +20,19 @@
             <span class="stat-card__hint">on this tenant</span>
         </article>
         <article class="stat-card stat-card--accent">
-            <span class="stat-card__label">Available</span>
-            <span class="stat-card__value">{{ $routers->where('status', 'available')->count() }}</span>
-            <span class="stat-card__hint">profiles can be pushed</span>
+            <span class="stat-card__label">Online</span>
+            <span class="stat-card__value">{{ $routers->filter(fn ($r) => $r->networkHealth?->health_state === 'online')->count() }}</span>
+            <span class="stat-card__hint">real monitoring confirmed</span>
         </article>
         <article class="stat-card stat-card--danger">
-            <span class="stat-card__label">Unavailable</span>
-            <span class="stat-card__value">{{ $routers->where('status', 'unavailable')->count() }}</span>
-            <span class="stat-card__hint">last test did not answer</span>
+            <span class="stat-card__label">Offline</span>
+            <span class="stat-card__value">{{ $routers->filter(fn ($r) => $r->networkHealth?->health_state === 'offline')->count() }}</span>
+            <span class="stat-card__hint">last observation was offline</span>
         </article>
         <article class="stat-card stat-card--warning">
-            <span class="stat-card__label">Never contacted</span>
-            <span class="stat-card__value">{{ $routers->whereNull('last_seen_at')->count() }}</span>
-            <span class="stat-card__hint">no successful test recorded</span>
+            <span class="stat-card__label">Unobserved</span>
+            <span class="stat-card__value">{{ $routers->filter(fn ($r) => $r->networkHealth === null)->count() }}</span>
+            <span class="stat-card__hint">no monitoring observation yet</span>
         </article>
     </div>
 
@@ -50,22 +50,36 @@
                     <thead>
                         <tr>
                             <th>Router</th>
-                            <th class="cell-optional">Driver</th>
-                            <th>State</th>
-                            <th class="cell-optional">Last seen</th>
+                            <th class="cell-optional">Monitoring</th>
+                            <th>Status</th>
+                            <th class="cell-optional">Last observed</th>
                             <th class="cell-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse ($routers as $router)
+                            @php
+                                $health = $router->networkHealth;
+                                $healthState = $health?->health_state ?? 'unobserved';
+                                $provider = $health?->provider;
+                                $isReal = $provider && $provider !== 'fake';
+                                $monitoringLabel = $isReal ? strtoupper($provider) : ($provider === 'fake' ? 'SIMULATED' : '—');
+                                $meta = is_string($health?->metadata) ? json_decode($health->metadata, true) : ($health?->metadata ?? []);
+                                $mutationsEnabled = config('network.mutations_enabled');
+                            @endphp
                             <tr>
                                 <td>
                                     <a class="cell-key" href="{{ route('routers.show', $router) }}">{{ $router->name }}</a>
                                     <span class="cell-sub">{{ $router->host }}:{{ $router->api_port }}</span>
                                 </td>
-                                <td class="cell-optional mono-value">{{ $router->driver }}</td>
-                                <td><span class="ui-status-badge ui-status-badge--{{ $router->status }}">{{ $router->status }}</span></td>
-                                <td class="cell-optional"><time class="cell-time">{{ $router->last_seen_at?->format('Y-m-d H:i') ?? '—' }}</time></td>
+                                <td class="cell-optional">
+                                    <span class="ui-status-badge ui-status-badge--{{ $isReal ? 'online' : ($provider === 'fake' ? 'pending' : '') }}">{{ $isReal ? 'REAL' : $monitoringLabel }}</span>
+                                    @if ($isReal)
+                                        <span class="cell-sub">{{ $monitoringLabel }}</span>
+                                    @endif
+                                </td>
+                                <td><span class="ui-status-badge ui-status-badge--{{ $healthState }}">{{ $healthState }}</span></td>
+                                <td class="cell-optional"><time class="cell-time">{{ $health?->observed_at?->format('Y-m-d H:i') ?? '—' }}</time></td>
                                 <td>
                                     <div class="cell-actions">
                                         <form class="inline-form" method="post" action="{{ route('routers.test', $router) }}">

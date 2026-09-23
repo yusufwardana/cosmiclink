@@ -2,6 +2,7 @@
 
 namespace App\Services\Monitoring;
 
+use App\Models\DiscoveredNetworkResource;
 use App\Models\NetworkAccount;
 use App\Models\TrafficBucket;
 use Illuminate\Database\Eloquent\Builder;
@@ -85,8 +86,20 @@ class TrafficAnalyticsService
         })->take($limit)->values();
 
         $accounts = $mapping['accounts'] ?? $this->loadMappings($tenantId, $rows->all());
+        $enriched = $rows->map(fn (array $row) => array_merge($row, $this->enrichment($accounts, $row['router_id'], $row['identity'])));
 
-        return $rows->map(fn (array $row) => array_merge($row, $this->enrichment($accounts, $row['router_id'], $row['identity'])))->all();
+        // Customer/connection identity outranks a Discovery-only queue label, so
+        // the persisted Discovery inventory is only read when at least one ranked
+        // row still lacks a customer mapping. Customer/package filters and
+        // non-STATIC_SIMPLE_QUEUE modes never consult Discovery.
+        $needsDiscovery = $enriched->contains(fn (array $row) => $row['mapped'] === false);
+        $queues = ($mapping['filtered'] || $source !== 'simple_queue' || ! $needsDiscovery)
+            ? collect()
+            : $this->discoveryQueues($enriched, $tenantId);
+
+        return $enriched->map(fn (array $row) => array_merge($row, [
+            'discovery' => $row['mapped'] ? null : $this->discoveryTargetFallback($row, $queues, $tenantId),
+        ]))->all();
     }
 
     public function subscriberHistory(int $tenantId, TrafficAnalyticsPeriod $period, string $mode, string $identity, array $filters = []): array
@@ -286,6 +299,80 @@ class TrafficAnalyticsService
             'connection' => $connection ? ['id' => $connection->id, 'code' => $connection->connection_code] : null,
             'package' => $connection?->internetPackage ? ['id' => $connection->internet_package_id, 'name' => $connection->internetPackage->name] : null,
         ];
+    }
+
+    /**
+     * Discovery fallback for one in-memory traffic row. Returns the queue
+     * payload for the row (`display_name`, `management_state`) only when the
+     * traffic identity itself is a subscriber-shaped target (/32 IPv4) that
+     * exactly matches a persisted Discovery Simple Queue target on the SAME
+     * router in the SAME tenant. Anything else stays unmapped.
+     */
+    private function discoveryTargetFallback(array $row, Collection $queues, int $tenantId): ?array
+    {
+        $target = strtolower(trim((string) ($row['identity'] ?? '')));
+        if (! $this->isSubscriberQueueTarget($target)) {
+            return null;
+        }
+
+        foreach ($queues as $queue) {
+            if ((int) $queue[1] !== (int) ($row['router_id'] ?? 0)) {
+                continue;
+            }
+            if ($queue[0] !== $target || (int) $queue[4] !== $tenantId) {
+                continue;
+            }
+
+            return ['display_name' => (string) $queue[2], 'management_state' => (string) $queue[3]];
+        }
+
+        return null;
+    }
+
+    /**
+     * Persisted Discovery Simple Queue rows for the routers on one ranking
+     * page, as [target, router, name, state, tenant] tuples. One batched read
+     * scoped to the tenant and routers actually ranked — never a RouterOS
+     * call, never a per-row lookup.
+     */
+    private function discoveryQueues(Collection $rows, int $tenantId): Collection
+    {
+        $routerIds = array_values(array_unique(array_filter(array_map('intval', $rows->pluck('router_id')->all()), fn (int $id) => $id > 0)));
+        if ($routerIds === []) {
+            return collect();
+        }
+
+        return DiscoveredNetworkResource::query()
+            ->where('tenant_id', $tenantId)
+            ->where('resource_type', 'queue')
+            ->whereIn('router_id', $routerIds)
+            ->whereNotNull('normalized_data->target')
+            ->orderBy('id')
+            ->get(['tenant_id', 'router_id', 'name', 'management_state', 'normalized_data'])
+            ->map(fn (DiscoveredNetworkResource $resource) => [
+                strtolower(trim((string) ($resource->normalized_data['target'] ?? ''))),
+                (int) $resource->router_id,
+                (string) $resource->name,
+                (string) $resource->management_state,
+                (int) $resource->tenant_id,
+            ]);
+    }
+
+    /**
+     * True only for a target that designates ONE host address: a single token
+     * whose position is exactly "x.y.z.w/32". A RouterOS target is either
+     * multi-token ("addr/24,addr/24,..."), a bare short prefix (…/24), or an
+     * unparsable '/' selector — each reads as aggregate or unknown and never
+     * as a subscriber.
+     */
+    private function isSubscriberQueueTarget(?string $target): bool
+    {
+        if (! is_string($target) || $target === '' || str_contains($target, ',') || ! str_ends_with($target, '/32')) {
+            return false;
+        }
+        $position = strrpos($target, '/');
+
+        return is_int($position) && filter_var(substr($target, 0, $position), FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
     }
 
     private function periodData(TrafficAnalyticsPeriod $period): array

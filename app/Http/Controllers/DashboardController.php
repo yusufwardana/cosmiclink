@@ -31,6 +31,20 @@ class DashboardController extends Controller
             $routerHealth[$observation->health_state] = ($routerHealth[$observation->health_state] ?? 0) + 1;
         }
 
+        // The most recent router observation that actually carries RouterOS
+        // telemetry, so the dashboard renders observed device facts rather than
+        // a simulation placeholder.
+        $telemetryObservation = HealthObservation::where('tenant_id', $tenantId)
+            ->where('subject_type', 'router')
+            ->whereIn('subject_id', Router::where('tenant_id', $tenantId)->pluck('id'))
+            ->latest('observed_at')
+            ->get()
+            ->first(fn (HealthObservation $observation) => ($observation->metadata['version'] ?? null) !== null);
+        $routerTelemetry = $telemetryObservation ? array_merge([
+            'router' => Router::find($telemetryObservation->subject_id)?->name,
+            'observed_at' => $telemetryObservation->observed_at,
+        ], $telemetryObservation->metadata) : null;
+
         return view('dashboard', [
             'routerCount' => $routerCount,
             'customerCount' => Customer::where('tenant_id', $tenantId)->count(),
@@ -49,6 +63,7 @@ class DashboardController extends Controller
             'billingSuspendedConnections' => CustomerConnection::where('tenant_id', $tenantId)->where('status', 'suspended')->where('suspension_reason', 'billing_overdue')->count(),
             'routerHealth' => $routerHealth,
             'routerHealthObserved' => $latestRouterHealth->count(),
+            'routerTelemetry' => $routerTelemetry,
             'latestObservationAt' => HealthObservation::where('tenant_id', $tenantId)->max('observed_at'),
             'activeIncidents' => OutageIncident::where('tenant_id', $tenantId)->whereIn('status', ['detected', 'acknowledged'])->with('router')->withCount('affectedConnections')->latest('detected_at')->limit(4)->get(),
             'activeIncidentCount' => OutageIncident::where('tenant_id', $tenantId)->whereIn('status', ['detected', 'acknowledged'])->count(),
