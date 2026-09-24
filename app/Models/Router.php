@@ -85,4 +85,7 @@ class Router extends Model
     {
         return $this->hasMany(TrafficBucket::class);
     }
+    public function capabilitySnapshots() { return $this->hasMany(RouterCapabilitySnapshot::class); }
+
+    public function liveConnectionStates() { return $this->hasMany(LiveConnectionState::class); }
 }
