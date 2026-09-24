@@ -21,7 +21,7 @@ class TrafficCollectionService
         'hotspot_sessions' => 'hotspot_session',
     ];
 
-    public function __construct(private readonly GoNetworkMonitoringClient $client) {}
+    public function __construct(private readonly GoNetworkMonitoringClient $client, private readonly LiveMonitoringService $liveMonitoring) {}
 
     public function collectRouter(Router $router): ?TrafficCollection
     {
@@ -83,6 +83,8 @@ class TrafficCollectionService
                     $this->persistSample($collection, $previousCollection, $sourceType, $source, $delayed);
                 }
             }
+
+            $this->liveMonitoring->refreshRouter($lockedRouter->id);
 
             return $collection;
         });
