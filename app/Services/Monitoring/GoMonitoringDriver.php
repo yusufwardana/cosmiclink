@@ -10,7 +10,7 @@ use Illuminate\Support\Carbon;
 
 class GoMonitoringDriver implements MonitoringDriver
 {
-    public function __construct(private readonly GoNetworkMonitoringClient $client) {}
+    public function __construct(private readonly GoNetworkMonitoringClient $client, private readonly RouterCapabilityService $capabilities) {}
 
     public function observeRouter(Router $router): HealthObservationResult
     {
@@ -25,6 +25,8 @@ class GoMonitoringDriver implements MonitoringDriver
                 'source' => 'go-engine',
             ]);
         }
+
+        $this->capabilities->refreshFromMonitoring($router, $payload);
 
         $memoryTotal = (int) ($payload['memory_total_bytes'] ?? 0);
         $memoryFree = (int) ($payload['memory_free_bytes'] ?? 0);
