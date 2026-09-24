@@ -13,6 +13,50 @@ class CustomerConnection extends Model
 
     protected $casts = ['provisioned_at' => 'datetime', 'suspended_at' => 'datetime', 'failed_at' => 'datetime', 'metadata' => 'array'];
 
+    /**
+     * Canonical business access mode with legacy compatibility.
+     * Existing simple_queue rows represent static-IP access.
+     */
+    public function getAccessModeAttribute(): string
+    {
+        return (string) ($this->metadata['access_mode'] ?? match ($this->metadata['connection_mode'] ?? null) {
+            'simple_queue' => 'static_ip',
+            'hotspot' => 'hotspot',
+            default => 'unknown',
+        });
+    }
+
+    /**
+     * Router/network implementation mechanism, kept separate from business
+     * access mode while preserving the legacy connection_mode field.
+     */
+    public function getNetworkMechanismAttribute(): string
+    {
+        return (string) ($this->metadata['network_mechanism'] ?? match ($this->metadata['connection_mode'] ?? null) {
+            'simple_queue' => 'simple_queue',
+            'hotspot' => 'hotspot',
+            default => 'unknown',
+        });
+    }
+
+    public function getAccessModeLabelAttribute(): string
+    {
+        return match ($this->access_mode) {
+            'static_ip' => 'STATIC IP',
+            'hotspot' => 'HOTSPOT',
+            default => strtoupper(str_replace('_', ' ', $this->access_mode)),
+        };
+    }
+
+    public function getNetworkMechanismLabelAttribute(): string
+    {
+        return match ($this->network_mechanism) {
+            'simple_queue' => 'Simple Queue',
+            'hotspot' => 'Hotspot',
+            default => strtoupper(str_replace('_', ' ', $this->network_mechanism)),
+        };
+    }
+
     protected static function booted(): void
     {
         static::created(function (self $connection) {
@@ -84,5 +128,15 @@ class CustomerConnection extends Model
     public function discoveredNetworkResources()
     {
         return $this->hasMany(DiscoveredNetworkResource::class);
+    }
+
+    public function discoveredNetworkResource()
+    {
+        return $this->hasOne(DiscoveredNetworkResource::class)->latestOfMany();
+    }
+
+    public function deviceObservations()
+    {
+        return $this->hasMany(DeviceObservation::class)->latest('last_seen_at');
     }
 }

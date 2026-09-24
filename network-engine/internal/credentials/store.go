@@ -318,6 +318,66 @@ func (s *Store) MarkValidated(ctx context.Context, ref Reference) error {
 	return nil
 }
 
+// RebindObserverScope moves one existing active OBSERVER credential to a new
+// Core scope without creating a credential or exposing its secret. The secret
+// is decrypted and immediately re-encrypted with the new associated data in
+// the same SQLite transaction, so the protected vault remains authoritative.
+func (s *Store) RebindObserverScope(ctx context.Context, oldRef, newRef Reference) error {
+	oldParsed, err := ParseReference(oldRef)
+	if err != nil {
+		return err
+	}
+	newParsed, err := ParseReference(newRef)
+	if err != nil {
+		return err
+	}
+	if oldParsed.Purpose != PurposeObserver || newParsed.Purpose != PurposeObserver || oldParsed.CredentialRef != newParsed.CredentialRef || oldParsed.Version != newParsed.Version || oldParsed.InstallationID != newParsed.InstallationID || oldParsed.AgentRef != newParsed.AgentRef {
+		return ErrCredentialScopeMismatch
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return errors.New("credential rebind failed")
+	}
+	defer tx.Rollback()
+
+	var persisted persistedCredential
+	row := tx.QueryRowContext(ctx, `SELECT credential_ref, tenant_ref, router_ref, agent_ref, installation_id, purpose, username, encrypted_secret, nonce, version, status FROM credentials WHERE credential_ref = ? AND version = ?`, oldParsed.CredentialRef, oldParsed.Version)
+	if err := row.Scan(&persisted.credentialRef, &persisted.tenantRef, &persisted.routerRef, &persisted.agentRef, &persisted.installationID, &persisted.purpose, &persisted.username, &persisted.ciphertext, &persisted.nonce, &persisted.version, &persisted.status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCredentialNotFound
+		}
+		return ErrCredentialPersistedInvalid
+	}
+	stored, err := persisted.reference()
+	if err != nil {
+		return ErrCredentialPersistedInvalid
+	}
+	if stored != oldParsed || persisted.status != CredentialStatusActive {
+		return ErrCredentialScopeMismatch
+	}
+
+	secret, err := s.decrypt(oldParsed, persisted.ciphertext, persisted.nonce)
+	if err != nil {
+		return ErrCredentialPayloadInvalid
+	}
+	ciphertext, nonce, err := s.encrypt(newParsed, secret)
+	if err != nil {
+		return err
+	}
+	for index := range secret {
+		secret[index] = 0
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE credentials SET tenant_ref = ?, router_ref = ?, encrypted_secret = ?, nonce = ? WHERE credential_ref = ? AND version = ? AND tenant_ref = ? AND router_ref = ? AND agent_ref = ? AND installation_id = ? AND purpose = ? AND status = 'ACTIVE'`, newParsed.TenantRef, newParsed.RouterRef, ciphertext, nonce, oldParsed.CredentialRef, oldParsed.Version, oldParsed.TenantRef, oldParsed.RouterRef, oldParsed.AgentRef, oldParsed.InstallationID, oldParsed.Purpose); err != nil {
+		return errors.New("credential rebind failed")
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("credential rebind failed")
+	}
+	return nil
+}
+
 func parseStoreTime(value string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05"} {
 		if parsed, err := time.Parse(layout, value); err == nil {

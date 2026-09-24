@@ -5,6 +5,7 @@ import {
     hasRecentTraffic,
     radialPoint,
     radialTopologyPositions,
+    hierarchicalTopologyPositions,
     remainingSubscriberCount,
     subscriberSearchMatch,
     truncateTopologyLabel,
@@ -20,9 +21,23 @@ test('radial topology anchors the router at the canvas center', () => {
     const positions = radialTopologyPositions(800, 600, 4);
     assert.deepEqual(positions.router, { x: 400, y: 300 });
     assert.ok(positions.internet.y < positions.router.y);
-    assert.ok(positions['group-queue'].x < positions.router.x);
-    assert.ok(positions['group-pppoe'].x > positions.router.x);
+    assert.ok(positions['group-static-ip'].x < positions.router.x);
+    assert.ok(positions['group-hotspot'].x > positions.router.x);
     assert.equal(Object.keys(positions).filter((key) => key.startsWith('subscriber-')).length, 4);
+});
+
+test('hierarchical topology separates the tree into readable vertical levels', () => {
+    const positions = hierarchicalTopologyPositions(900, 720, {
+        groups: ['group-static_ip', 'group-hotspot'],
+        customers: [{ id: 'customer-1', group: 'group-static_ip' }, { id: 'customer-2', group: 'group-hotspot' }],
+        devices: [{ id: 'device-1', customer: 'customer-2' }, { id: 'device-2', customer: 'customer-2' }],
+    });
+    assert.ok(positions.internet.y < positions.router.y);
+    assert.ok(positions.router.y < positions['group-static_ip'].y);
+    assert.ok(positions['group-static_ip'].y < positions['customer-1'].y);
+    assert.ok(positions['customer-2'].y < positions['device-1'].y);
+    assert.notEqual(positions['group-static_ip'].x, positions['group-hotspot'].x);
+    assert.notEqual(positions['device-1'].x, positions['device-2'].x);
 });
 
 const nodes = Array.from({ length: 20 }, (_, index) => ({

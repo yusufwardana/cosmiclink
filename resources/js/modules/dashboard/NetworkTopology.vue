@@ -22,12 +22,15 @@ import {
     truncateTopologyLabel,
     visibleSubscriberNodes,
     radialTopologyPositions,
+    hierarchicalTopologyPositions,
 } from './networkTopologyUtils.js';
 
 const props = defineProps({
     routers:         { type: Array, default: () => [] },
     subscriberNodes: { type: Array, default: () => [] },
     pppoeNodes:      { type: Array, default: () => [] },
+    deviceNodes:    { type: Array, default: () => [] },
+    accessModeGroups:{ type: Array, default: () => [] },
     interfaceTraffic:{ type: Array, default: () => [] },
     aggregateCount:  { type: Number, default: 0 },
     selectedNodeId:  { type: String, default: null },
@@ -40,7 +43,8 @@ const canvasEl = ref(null);
 let cy = null;
 
 // Expand/collapse state per group node.
-const expanded = ref({ 'group-queue': false, 'group-pppoe': false });
+const expanded = ref({ 'group-static-ip': false, 'group-hotspot': false });
+const expandedCustomers = ref(new Set());
 const visibleLimit = ref(SUBSCRIBER_BATCH_SIZE);
 const showAllSubscribers = ref(false);
 const focusedSubscriberId = ref(null);
@@ -70,14 +74,20 @@ const managedColour = (state) => {
 
 const graphPositions = (subscriberCount = 0) => {
     const rect = canvasEl.value?.getBoundingClientRect();
-    return radialTopologyPositions(rect?.width ?? 800, rect?.height ?? 560, subscriberCount);
+    const width = Math.max(900, rect?.width ?? 900);
+    const height = Math.max(720, rect?.height ?? 720);
+    const groups = props.accessModeGroups.map((group) => group.id);
+    const customers = props.subscriberNodes.map((customer) => ({ id: customer.id, group: accessGroupId(customer.access_mode) }));
+    const devices = props.deviceNodes.map((device) => ({ id: device.id, customer: props.subscriberNodes.find((customer) => customer.customer_connection_id === device.customer_connection_id)?.id }));
+    return hierarchicalTopologyPositions(width, height, { groups, customers, devices });
 };
 
 const positionFor = (data, index = 0, positions = graphPositions()) => {
     if (data.type === 'router') return positions.router;
     if (positions[data.id]) return positions[data.id];
     if (data.type === 'subscriber') return positions[`subscriber-${index}`] ?? positions['subscriber-0'];
-    if (data.type === 'more' || data.type === 'show-all') return positions['subscriber-0'];
+    if (data.type === 'device') return positions[`subscriber-${index}`] ?? positions['subscriber-0'];
+    if (data.type === 'more' || data.type === 'show-all') return positions[data.id] ?? positions['subscriber-0'];
     return positions.router;
 };
 
@@ -92,12 +102,14 @@ const nodeElement = (data, index = 0, positions = graphPositions()) => ({
 const reducedMotion = () => typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
+const accessGroupId = (value) => `group-${String(value ?? '').toLowerCase().replace(/\s+/g, '_')}`;
+
 const selectedPathIds = () => {
     const activeId = focusedSubscriberId.value || (hoveredNodeId.value && cy?.getElementById(hoveredNodeId.value)?.data('type') === 'subscriber' ? hoveredNodeId.value : null);
     if (!activeId) return [];
     const subscriber = cy?.getElementById(activeId);
     if (!subscriber?.length) return [];
-    return ['internet', `router-${props.routers[0]?.id}`, 'group-queue', activeId];
+    return ['internet', `router-${props.routers[0]?.id}`, accessGroupId(cy?.getElementById(activeId)?.data('kind')), activeId];
 };
 
 const updatePathState = () => {
@@ -223,76 +235,36 @@ const buildElements = () => {
 
     const routerNodeId = `router-${routerId}`;
 
-    // Group nodes (collapsed by default)
-    const queueCount  = props.subscriberNodes.length + props.aggregateCount;
-    const pppoeCount  = props.pppoeNodes.length;
+    const groupNodes = props.accessModeGroups.length ? props.accessModeGroups : [
+        { id: 'group-static-ip', label: 'STATIC IP', count: props.subscriberNodes.filter((node) => node.access_mode === 'STATIC IP').length },
+        { id: 'group-hotspot', label: 'HOTSPOT', count: props.subscriberNodes.filter((node) => node.access_mode === 'HOTSPOT').length },
+    ];
+    groupNodes.forEach((group) => {
+        const groupId = group.id || accessGroupId(group.label);
+        elements.push(nodeElement({ id: groupId, label: group.label, sub: `${group.count ?? 0} customers`, type: 'group', kind: group.label, expandable: (group.count ?? 0) > 0, color: group.label === 'HOTSPOT' ? '#5a6aa8' : '#3a8fa8' }, 0, positions));
+        elements.push({ data: { id: `e-router-${groupId}`, source: routerNodeId, target: groupId, type: 'mode', traffic: hasRecentTraffic(props.interfaceTraffic) } });
+    });
 
-    elements.push(nodeElement({
-            id:    'group-queue',
-            label: 'Simple Queue',
-            sub:   `${queueCount} resources`,
-            type:  'group',
-            kind:  'queue',
-            expandable: queueCount > 0,
-            color: '#3a8fa8',
-        }, 0, positions));
-    elements.push({ data: { id: 'e-router-gq', source: routerNodeId, target: 'group-queue', type: 'mode', traffic: hasRecentTraffic(props.interfaceTraffic) } });
-
-    elements.push(nodeElement({
-            id:    'group-pppoe',
-            label: 'PPPoE',
-            sub:   pppoeCount > 0 ? `${pppoeCount} accounts` : 'No accounts',
-            type:  'group',
-            kind:  'pppoe',
-            expandable: pppoeCount > 0,
-            color: '#5a6aa8',
-        }, 0, positions));
-    elements.push({ data: { id: 'e-router-gp', source: routerNodeId, target: 'group-pppoe', type: 'mode', traffic: hasRecentTraffic(props.interfaceTraffic) } });
-
-    // Subscriber nodes (only when expanded)
-    if (expanded.value['group-queue']) {
-        const visible = showAllSubscribers.value
-            ? props.subscriberNodes
-            : visibleSubscriberNodes(props.subscriberNodes, visibleLimit.value, focusedSubscriberId.value);
-        for (const [index, s] of visible.entries()) {
-            const color = managedColour(s.management_state);
-            elements.push(nodeElement({
-                    id:     s.id,
-                    label:  truncateTopologyLabel(s.name),
-                    fullLabel: s.name,
-                    sub:    truncateTopologyLabel((s.target ?? '').replace('/32', ''), 16),
-                    fullTarget: s.target ?? '',
-                    type:   'subscriber',
-                    kind:   'queue',
-                    color,
-                    raw:    s,
-                }, index, positions));
-            elements.push({ data: { id: `e-gq-${s.id}`, source: 'group-queue', target: s.id, type: 'subscriber', traffic: hasRecentTraffic([s]) } });
-        }
-        const remaining = remainingSubscriberCount(props.subscriberNodes, visible.length);
+    for (const group of groupNodes) {
+        const groupId = group.id || accessGroupId(group.label);
+        if (!expanded.value[groupId]) continue;
+        const groupMode = group.label;
+        const groupCustomers = props.subscriberNodes.filter((node) => node.access_mode === groupMode);
+        const visible = showAllSubscribers.value ? groupCustomers : visibleSubscriberNodes(groupCustomers, visibleLimit.value, focusedSubscriberId.value);
+        visible.forEach((customer, index) => {
+            const devices = props.deviceNodes.filter((device) => device.customer_connection_id === customer.customer_connection_id);
+            const customerExpanded = expandedCustomers.value.has(customer.id);
+            elements.push(nodeElement({ id: customer.id, label: truncateTopologyLabel(customer.name), fullLabel: customer.name, sub: truncateTopologyLabel(customer.identity ?? '', 18), fullTarget: customer.identity ?? '', type: 'subscriber', kind: groupMode, color: managedColour(customer.management_state), raw: customer, device_ips: devices.map((device) => device.ip_address).filter(Boolean), device_macs: devices.map((device) => device.mac_address).filter(Boolean) }, index, positions));
+            elements.push({ data: { id: `e-${groupId}-${customer.id}`, source: groupId, target: customer.id, type: 'subscriber' } });
+            if (customerExpanded) devices.forEach((device, deviceIndex) => {
+                elements.push(nodeElement({ id: device.id, label: truncateTopologyLabel(device.name), sub: truncateTopologyLabel(device.ip_address ?? device.mac_address ?? '', 18), type: 'device', color: '#7b9aaa', raw: device }, deviceIndex, positions));
+                elements.push({ data: { id: `e-${customer.id}-${device.id}`, source: customer.id, target: device.id, type: 'device' } });
+            });
+        });
+        const remaining = remainingSubscriberCount(groupCustomers, visible.length);
         if (!showAllSubscribers.value && remaining > 0) {
-            elements.push(nodeElement({ id: 'more-subscribers', label: `+ ${remaining} more`, sub: 'Load batch', type: 'more', color: '#5c7a8a' }, visible.length, positions));
-            elements.push({ data: { id: 'e-gq-more', source: 'group-queue', target: 'more-subscribers', type: 'subscriber' } });
-            if (remaining > SUBSCRIBER_BATCH_SIZE) {
-                elements.push(nodeElement({ id: 'show-all-subscribers', label: 'Show all', sub: `${props.subscriberNodes.length} nodes`, type: 'show-all', color: '#5c7a8a' }, visible.length + 1, positions));
-                elements.push({ data: { id: 'e-gq-all', source: 'group-queue', target: 'show-all-subscribers', type: 'subscriber' } });
-            }
-        }
-    }
-
-    if (expanded.value['group-pppoe']) {
-        for (const [index, p] of props.pppoeNodes.entries()) {
-            const color = managedColour(p.management_state);
-            elements.push(nodeElement({
-                    id:     p.id,
-                    label:  p.name,
-                    sub:    'PPPoE',
-                    type:   'subscriber',
-                    kind:   'pppoe',
-                    color,
-                    raw:    p,
-                }, index, positions));
-            elements.push({ data: { id: `e-gp-${p.id}`, source: 'group-pppoe', target: p.id, type: 'subscriber' } });
+            elements.push(nodeElement({ id: `${groupId}-more`, label: `+ ${remaining} more`, sub: 'Load batch', type: 'more', color: '#5c7a8a' }, visible.length, positions));
+            elements.push({ data: { id: `e-${groupId}-more`, source: groupId, target: `${groupId}-more`, type: 'subscriber' } });
         }
     }
 
@@ -310,11 +282,12 @@ const cyStyle = [
         'text-background-padding': '3px', 'text-background-shape': 'roundrectangle',
         'width': 42, 'height': 42, 'shape': 'ellipse',
     }},
-    { selector: 'node[type="internet"]',    style: { 'background-color': '#1a3d50', 'border-color': '#3a8fa8', 'border-width': 2, 'width': 62, 'height': 46, 'shape': 'ellipse', 'color': '#3a8fa8', 'font-size': 11, 'font-weight': 600 } },
-    { selector: 'node[type="router"]',      style: { 'width': 112, 'height': 112, 'shape': 'ellipse', 'font-size': 13, 'font-weight': 700, 'border-width': 3 } },
-    { selector: 'node[type="group"]',       style: { 'width': 104, 'height': 104, 'shape': 'ellipse', 'font-size': 11, 'font-weight': 600 } },
-    { selector: 'node[type="subscriber"]',  style: { 'width': 76, 'height': 38, 'shape': 'roundrectangle', 'font-size': 9 } },
-    { selector: 'node[type="more"], node[type="show-all"]', style: { 'width': 88, 'height': 34, 'shape': 'roundrectangle', 'font-size': 9, 'background-color': '#172b35', 'border-style': 'dashed' } },
+    { selector: 'node[type="internet"]',    style: { 'background-color': '#1a3d50', 'border-color': '#3a8fa8', 'border-width': 2, 'width': 58, 'height': 38, 'shape': 'ellipse', 'color': '#3a8fa8', 'font-size': 10, 'font-weight': 600 } },
+    { selector: 'node[type="router"]',      style: { 'width': 82, 'height': 82, 'shape': 'ellipse', 'font-size': 11, 'font-weight': 700, 'border-width': 3 } },
+    { selector: 'node[type="group"]',       style: { 'width': 88, 'height': 58, 'shape': 'roundrectangle', 'font-size': 10, 'font-weight': 600 } },
+    { selector: 'node[type="subscriber"]',  style: { 'width': 112, 'height': 38, 'shape': 'roundrectangle', 'font-size': 9 } },
+    { selector: 'node[type="device"]',      style: { 'width': 92, 'height': 30, 'shape': 'roundrectangle', 'font-size': 8 } },
+    { selector: 'node[type="more"], node[type="show-all"]', style: { 'width': 112, 'height': 30, 'shape': 'roundrectangle', 'font-size': 8, 'background-color': '#172b35', 'border-style': 'dashed' } },
     { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#4de8a5', 'border-opacity': 1 } },
     { selector: 'node.highlighted', style: { 'border-width': 3, 'border-color': '#4de8a5', 'border-opacity': 1 } },
     { selector: 'node.dimmed', style: { 'opacity': 0.25 } },
@@ -341,8 +314,8 @@ const initCy = () => {
     cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         if (n.data('type') === 'group' && n.data('expandable')) {
-            if (n.id() === 'group-queue' && expanded.value['group-queue']) {
-                expanded.value['group-queue'] = false;
+            if (expanded.value[n.id()]) {
+                expanded.value[n.id()] = false;
                 visibleLimit.value = SUBSCRIBER_BATCH_SIZE;
                 showAllSubscribers.value = false;
                 focusedSubscriberId.value = null;
@@ -359,7 +332,15 @@ const initCy = () => {
             showAllSubscribers.value = true;
             rebuildGraph(); return;
         }
-        focusedSubscriberId.value = n.data('type') === 'subscriber' ? n.id() : null;
+        if (n.data('type') === 'subscriber') {
+            focusedSubscriberId.value = n.id();
+            const next = new Set(expandedCustomers.value);
+            if (next.has(n.id())) next.delete(n.id()); else next.add(n.id());
+            expandedCustomers.value = next;
+            rebuildGraph();
+        } else {
+            focusedSubscriberId.value = null;
+        }
         emit('node-selected', { id: n.id(), type: n.data('type'), raw: n.data('raw') });
         refreshAnimation();
     });
@@ -416,18 +397,38 @@ const relayout = () => {
 watch(() => props.searchQuery, (q) => {
     if (!cy) return;
     cy.nodes().removeClass('highlighted');
-    if (!q) return;
+    if (!q) { focusedSubscriberId.value = null; expandedCustomers.value = new Set(); emit('node-cleared'); return; }
     const match = props.subscriberNodes.find((node) => subscriberSearchMatch(node, q));
     if (match) {
         focusedSubscriberId.value = match.id;
+        const term = q.trim().toLowerCase();
+        if ([...(match.device_ips ?? []), ...(match.device_macs ?? [])].some((value) => String(value).toLowerCase().includes(term))) {
+            const next = new Set(expandedCustomers.value);
+            next.add(match.id);
+            expandedCustomers.value = next;
+        }
     }
     if (match) {
-        expanded.value['group-queue'] = true;
+        expanded.value[accessGroupId(match.access_mode)] = true;
         rebuildGraph();
     }
     const resolveMatch = () => {
-        const hits = cy.nodes().filter((n) => (n.data('label') ?? '').toLowerCase().includes(q.trim().toLowerCase()) || (n.data('sub') ?? '').toLowerCase().includes(q.trim().toLowerCase()));
-        if (!hits.length) return;
+        const term = q.trim().toLowerCase();
+        const hits = cy.nodes().filter((n) => {
+            const raw = n.data('raw') || {};
+            return [n.data('label'), n.data('sub'), raw.name, raw.code, raw.identity, raw.ip_address, raw.mac_address]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(term));
+        });
+        if (!hits.length) { focusedSubscriberId.value = null; expandedCustomers.value = new Set(); emit('node-cleared'); return; }
+        const hit = hits.first();
+        if (hit.data('type') === 'subscriber') {
+            const next = new Set(expandedCustomers.value);
+            next.add(hit.id());
+            expandedCustomers.value = next;
+            focusedSubscriberId.value = hit.id();
+            rebuildGraph();
+        }
         hits.addClass('highlighted');
         cy.nodes().unselect();
         hits.first().select();
@@ -435,7 +436,7 @@ watch(() => props.searchQuery, (q) => {
         emit('node-selected', { id: hits.first().id(), type: hits.first().data('type'), raw: hits.first().data('raw') });
         refreshAnimation();
     };
-    if (match && expanded.value['group-queue']) requestAnimationFrame(resolveMatch);
+    if (match && expanded.value[accessGroupId(match.access_mode)]) requestAnimationFrame(resolveMatch);
     else resolveMatch();
 });
 
@@ -470,7 +471,7 @@ defineExpose({ fitGraph, relayout,
     },
     focusSubscriber: (id) => {
         focusedSubscriberId.value = id;
-        expanded.value['group-queue'] = true;
+        expanded.value[`group-${String((cy?.getElementById(id)?.data('kind') || '')).toLowerCase().replace(/\s+/g, '-')}`] = true;
         rebuildGraph();
         requestAnimationFrame(() => {
             const n = cy?.getElementById(id);

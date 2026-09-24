@@ -7,11 +7,18 @@ import (
 
 // FakeScenario configures a deterministic FakeMonitoringProvider outcome.
 type FakeScenario struct {
-	Router      RouterResource
-	PPPSessions []PPPSession
-	Traffic     TrafficSnapshot
-	Err         error
-	Delay       time.Duration
+	Router       RouterResource
+	PPPSessions  []PPPSession
+	Traffic      TrafficSnapshot
+	Err          error
+	Delay        time.Duration
+	HotspotUsers []HotspotUserSurveyEntry
+}
+
+func (f *FakeMonitoringProvider) SurveyHotspotAccounts(context.Context, RouterTarget) ([]HotspotUserSurveyEntry, error) {
+	users := make([]HotspotUserSurveyEntry, len(f.Scenario.HotspotUsers))
+	copy(users, f.Scenario.HotspotUsers)
+	return users, f.Scenario.Err
 }
 
 // FakeMonitoringProvider is a deterministic, network-free provider used for CI,

@@ -19,6 +19,7 @@ const uptime = (s) => {
 
 const router      = computed(() => props.selectedNode?.type === 'router' ? props.selectedNode.raw : null);
 const subscriber  = computed(() => props.selectedNode?.type === 'subscriber' ? props.selectedNode.raw : null);
+const device = computed(() => props.selectedNode?.type === 'device' ? props.selectedNode.raw : null);
 const primaryRouter = computed(() => props.routers[0] ?? null);
 const totalDiscovery = computed(() => Object.values(props.discoveryCounts).reduce((a, b) => Number(a) + Number(b), 0));
 
@@ -93,14 +94,17 @@ const stamp = (v) => v?.slice(0, 16).replace('T', ' ') ?? '—';
 
     <template v-else-if="subscriber">
         <div class="detail-panel__head">
-            <p class="panel__kicker">{{ subscriber.resource_type === 'pppoe_account' ? 'PPPoE account' : 'Simple Queue' }}</p>
+            <p class="panel__kicker">Customer · {{ subscriber.access_mode }}</p>
             <h3 class="panel__title">{{ subscriber.name }}</h3>
             <span class="ui-status-badge">{{ subscriber.management_state }}</span>
         </div>
         <div class="detail-panel__body">
             <div class="spec">
-                <div v-if="subscriber.target"       class="spec__row"><span class="spec__key">Target</span>    <span class="spec__val mono-value">{{ subscriber.target }}</span></div>
-                <div                                class="spec__row"><span class="spec__key">Type</span>      <span class="spec__val mono-value">{{ subscriber.resource_type }}</span></div>
+                <div                                class="spec__row"><span class="spec__key">Customer code</span><span class="spec__val mono-value">{{ subscriber.code || '—' }}</span></div>
+                <div                                class="spec__row"><span class="spec__key">Access</span>    <span class="spec__val mono-value">{{ subscriber.access_mode }}</span></div>
+                <div                                class="spec__row"><span class="spec__key">Mechanism</span> <span class="spec__val mono-value">{{ subscriber.network_mechanism }}</span></div>
+                <div                                class="spec__row"><span class="spec__key">Identity</span>   <span class="spec__val mono-value">{{ subscriber.identity || '—' }}</span></div>
+                <div                                class="spec__row"><span class="spec__key">Devices</span>    <span class="spec__val mono-value">{{ subscriber.device_count }}</span></div>
                 <div                                class="spec__row"><span class="spec__key">State</span>     <span class="spec__val mono-value">{{ subscriber.management_state }}</span></div>
                 <div v-if="subscriber.last_seen_at" class="spec__row"><span class="spec__key">Last seen</span> <span class="spec__val mono-value" style="font-size:10px">{{ stamp(subscriber.last_seen_at) }}</span></div>
                 <template v-if="subscriber.upload_bytes != null">
@@ -116,6 +120,10 @@ const stamp = (v) => v?.slice(0, 16).replace('T', ' ') ?? '—';
         </div>
     </template>
 
+    <template v-else-if="device">
+        <div class="detail-panel__head"><p class="panel__kicker">Observed device</p><h3 class="panel__title">{{ device.name }}</h3></div>
+        <div class="detail-panel__body"><div class="spec"><div class="spec__row"><span class="spec__key">IP</span><span class="spec__val mono-value">{{ device.ip_address || '—' }}</span></div><div class="spec__row"><span class="spec__key">MAC</span><span class="spec__val mono-value">{{ device.mac_address || '—' }}</span></div><div class="spec__row"><span class="spec__key">Source</span><span class="spec__val mono-value">{{ device.source }}</span></div><div class="spec__row"><span class="spec__key">Last seen</span><span class="spec__val mono-value">{{ stamp(device.last_seen_at) }}</span></div></div></div>
+    </template>
     <template v-else>
         <div class="detail-panel__head"><h3 class="panel__title">—</h3></div>
         <div class="detail-panel__body"><p class="console-note">Select a node to see details.</p></div>

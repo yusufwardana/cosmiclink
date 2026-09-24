@@ -101,3 +101,68 @@ type Snapshot struct {
 type Provider interface {
 	Collect(ctx context.Context, target RouterTarget) (Snapshot, error)
 }
+
+// IdentityProvider performs the intentionally narrower first-contact check.
+// It must issue only /system/identity/print and /system/resource/print.
+type IdentityProvider interface {
+	VerifyIdentity(ctx context.Context, target RouterTarget) (Snapshot, error)
+}
+
+// HotspotSurveyProvider performs the narrowly scoped read-only ARP/Hotspot
+// survey. It must issue only the three survey commands and never persist data.
+type HotspotSurveyProvider interface {
+	SurveyHotspot(ctx context.Context, target RouterTarget) (HotspotSurvey, error)
+}
+
+// HotspotAccountProvider performs the narrow account-only validation used by
+// Discovery preview. Implementations must issue only /ip/hotspot/user/print.
+type HotspotAccountProvider interface {
+	SurveyHotspotAccounts(ctx context.Context, target RouterTarget) ([]HotspotUserSurveyEntry, error)
+}
+
+type DHCPLeaseSurveyProvider interface {
+	SurveyDHCPLeases(ctx context.Context, target RouterTarget) ([]DHCPLeaseSurveyEntry, error)
+}
+
+type ARPSurveyEntry struct {
+	Address    string `json:"address,omitempty"`
+	MACAddress string `json:"mac_address,omitempty"`
+	Interface  string `json:"interface,omitempty"`
+	Complete   bool   `json:"complete"`
+	Dynamic    bool   `json:"dynamic"`
+}
+
+type HotspotUserSurveyEntry struct {
+	Username string `json:"username"`
+	Profile  string `json:"profile,omitempty"`
+	Disabled bool   `json:"disabled"`
+	Comment  string `json:"comment,omitempty"`
+}
+
+type HotspotSessionSurveyEntry struct {
+	Username   string `json:"username"`
+	Address    string `json:"address,omitempty"`
+	MACAddress string `json:"mac_address,omitempty"`
+	Server     string `json:"server,omitempty"`
+	LoginBy    string `json:"login_by,omitempty"`
+	Uptime     string `json:"uptime,omitempty"`
+}
+
+type HotspotSurvey struct {
+	SurveyedAt     time.Time                   `json:"surveyed_at"`
+	ARPEntries     []ARPSurveyEntry            `json:"arp_entries"`
+	HotspotUsers   []HotspotUserSurveyEntry    `json:"hotspot_users"`
+	ActiveSessions []HotspotSessionSurveyEntry `json:"active_sessions"`
+}
+
+type DHCPLeaseSurveyEntry struct {
+	Address      string `json:"address,omitempty"`
+	MACAddress   string `json:"mac_address,omitempty"`
+	HostName     string `json:"host_name,omitempty"`
+	ClientID     string `json:"client_id,omitempty"`
+	Server       string `json:"server,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Dynamic      bool   `json:"dynamic"`
+	LastSeen     string `json:"last_seen,omitempty"`
+	ExpiresAfter string `json:"expires_after,omitempty"`
+}

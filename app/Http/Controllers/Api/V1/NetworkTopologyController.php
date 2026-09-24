@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\DiscoveredNetworkResource;
+use App\Models\CustomerConnection;
+use App\Models\DeviceObservation;
 use App\Models\HealthObservation;
 use App\Models\Router;
 use App\Models\TrafficBucket;
@@ -32,30 +34,47 @@ class NetworkTopologyController extends Controller
 
         $routerData = $routers->map(fn ($r) => $this->routerPayload($r, $obs->get($r->id)))->values();
 
-        // Queue + PPPoE discovery resources — one batched read.
+        // Discovery resources remain supplemental inventory/count data only.
         $resources = DiscoveredNetworkResource::where('tenant_id', $tenantId)
             ->whereIn('resource_type', ['queue', 'pppoe_account'])
             ->whereIn('router_id', $routerIds)->orderBy('name')
             ->get(['id', 'router_id', 'resource_type', 'name', 'management_state', 'normalized_data', 'last_seen_at']);
 
-        $subQueues  = $resources->where('resource_type', 'queue')
-            ->filter(fn ($r) => $this->isSubscriberTarget($r->normalized_data['target'] ?? null))->values();
-        $aggQueues  = $resources->where('resource_type', 'queue')
-            ->reject(fn ($r) => $this->isSubscriberTarget($r->normalized_data['target'] ?? null))->values();
-        $pppoeRecs  = $resources->where('resource_type', 'pppoe_account')->values();
-
-        // Traffic aggregate — one query for all subscribers.
-        $traffic = TrafficBucket::where('tenant_id', $tenantId)
-            ->whereIn('router_id', $routerIds)->where('source_type', 'simple_queue')
-            ->where('subscriber_authoritative', true)
-            ->where('bucket_started_at', '>=', now()->subDays(30))
-            ->selectRaw('router_id, subject_key, SUM(upload_bytes) AS up, SUM(download_bytes) AS dn')
-            ->groupBy('router_id', 'subject_key')
-            ->orderByRaw('SUM(upload_bytes+download_bytes) DESC')->limit(200)
-            ->get()->keyBy(fn ($r) => $r->router_id.'|'.$r->subject_key);
-
-        $subNodes   = $subQueues->map(fn ($r) => $this->subPayload($r, $traffic))->values();
-        $pppoeNodes = $pppoeRecs->map(fn ($r) => $this->pppoePayload($r))->values();
+        $connections = CustomerConnection::where('tenant_id', $tenantId)
+            ->whereIn('router_id', $routerIds)
+            ->with(['customer', 'router', 'deviceObservations'])
+            ->orderBy('id')
+            ->get();
+        $deviceNodes = $connections->flatMap(fn ($connection) => $connection->deviceObservations->map(fn (DeviceObservation $device) => [
+            'id' => 'device-'.$device->id,
+            'device_id' => $device->id,
+            'customer_connection_id' => $connection->id,
+            'router_id' => $connection->router_id,
+            'name' => $device->metadata['dhcp_hostname'] ?? $device->ip_address ?? 'Observed device',
+            'ip_address' => $device->ip_address,
+            'mac_address' => $device->mac_address,
+            'hostname' => $device->metadata['dhcp_hostname'] ?? null,
+            'source' => $device->source,
+            'last_seen_at' => $device->last_seen_at?->toIso8601String(),
+        ]))->values();
+        $customerNodes = $connections->map(fn ($connection) => [
+            'id' => 'customer-connection-'.$connection->id,
+            'customer_connection_id' => $connection->id,
+            'customer_id' => $connection->customer_id,
+            'router_id' => $connection->router_id,
+            'name' => $connection->customer?->name ?? 'Customer',
+            'code' => $connection->customer?->customer_code,
+            'access_mode' => strtoupper(str_replace('_', ' ', $connection->access_mode)),
+            'network_mechanism' => $connection->network_mechanism,
+            'identity' => $connection->metadata['network_identity'] ?? null,
+            'management_state' => $connection->discoveredNetworkResource?->management_state ?? 'ADOPTED',
+            'device_count' => $connection->deviceObservations->count(),
+        ])->values();
+        $accessModeGroups = $connections->groupBy('access_mode')->map(fn ($group, $mode) => [
+            'id' => 'group-'.strtolower((string) $mode),
+            'label' => strtoupper(str_replace('_', ' ', (string) $mode)),
+            'count' => $group->count(),
+        ])->values();
 
         $counts = DiscoveredNetworkResource::where('tenant_id', $tenantId)
             ->whereIn('router_id', $routerIds)
@@ -77,9 +96,12 @@ class NetworkTopologyController extends Controller
 
         return response()->json(['data' => [
             'routers'           => $routerData,
-            'subscriber_nodes'  => $subNodes,
-            'pppoe_nodes'       => $pppoeNodes,
-            'aggregate_count'   => $aggQueues->count(),
+            'access_mode_groups'=> $accessModeGroups,
+            'customer_nodes'    => $customerNodes,
+            'device_nodes'      => $deviceNodes,
+            'subscriber_nodes'  => $customerNodes,
+            'pppoe_nodes'       => collect(),
+            'aggregate_count'   => $resources->where('resource_type', 'queue')->reject(fn ($r) => $this->isSubscriberTarget($r->normalized_data['target'] ?? null))->count(),
             'discovery_counts'  => $counts,
             'interface_traffic' => $iface,
         ]]);

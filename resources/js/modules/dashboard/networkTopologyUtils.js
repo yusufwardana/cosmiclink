@@ -17,8 +17,8 @@ export function radialTopologyPositions(width, height, subscriberCount = 0) {
 
     const positions = {
         internet: radialPoint(center.x, center.y, serviceRadius, -90),
-        'group-queue': radialPoint(center.x, center.y, serviceRadius, 150),
-        'group-pppoe': radialPoint(center.x, center.y, serviceRadius, 30),
+        'group-static-ip': radialPoint(center.x, center.y, serviceRadius, 150),
+        'group-hotspot': radialPoint(center.x, center.y, serviceRadius, 30),
         router: center,
     };
 
@@ -32,6 +32,44 @@ export function radialTopologyPositions(width, height, subscriberCount = 0) {
     return positions;
 }
 
+export function hierarchicalTopologyPositions(width, height, { groups = [], customers = [], devices = [] } = {}) {
+    const safeWidth = Math.max(640, Number(width) || 640);
+    const safeHeight = Math.max(560, Number(height) || 560);
+    const centerX = safeWidth / 2;
+    const groupY = 250;
+    const customerStartY = 360;
+    const deviceGapY = 86;
+    const groupX = groups.map((_, index) => safeWidth * ((index + 1) / (groups.length + 1)));
+    const positions = {
+        internet: { x: centerX, y: 54 },
+        router: { x: centerX, y: 150 },
+    };
+    groups.forEach((group, index) => { positions[group] = { x: groupX[index], y: groupY }; });
+    groups.forEach((group, groupIndex) => {
+        const groupCustomers = customers.filter((customer) => customer.group === group);
+        const columns = Math.min(3, Math.max(1, Math.ceil(Math.sqrt(groupCustomers.length))));
+        const spacing = Math.min(150, Math.max(112, (safeWidth / (columns + 1))));
+        groupCustomers.forEach((customer, index) => {
+            const row = Math.floor(index / columns);
+            const column = index % columns;
+            const offset = (column - ((columns - 1) / 2)) * spacing;
+            positions[customer.id] = { x: groupX[groupIndex] + offset, y: customerStartY + row * 74 };
+        });
+        const lastRow = Math.max(0, Math.ceil(groupCustomers.length / columns) - 1);
+        positions[`${group}-more`] = { x: groupX[groupIndex], y: customerStartY + (lastRow + 1) * 74 };
+        positions[`${group}-show-all`] = { x: groupX[groupIndex], y: customerStartY + (lastRow + 2) * 74 };
+    });
+    devices.forEach((device, index) => {
+        const customerPosition = positions[device.customer];
+        if (!customerPosition) return;
+        const siblings = devices.filter((candidate) => candidate.customer === device.customer);
+        const siblingIndex = siblings.findIndex((candidate) => candidate.id === device.id);
+        const offset = (siblingIndex - ((siblings.length - 1) / 2)) * 92;
+        positions[device.id] = { x: customerPosition.x + offset, y: customerPosition.y + deviceGapY };
+    });
+    return positions;
+}
+
 export function subscriberHasTraffic(node) {
     return Number(node?.upload_bytes ?? 0) > 0 || Number(node?.download_bytes ?? 0) > 0;
 }
@@ -40,7 +78,7 @@ export function subscriberSearchMatch(node, query) {
     const term = String(query ?? '').trim().toLowerCase();
     if (!term) return false;
 
-    return [node?.name, node?.target]
+    return [node?.name, node?.code, node?.identity, node?.target, ...(node?.device_ips ?? []), ...(node?.device_macs ?? [])]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
 }

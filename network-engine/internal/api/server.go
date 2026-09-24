@@ -89,10 +89,174 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/network/accounts/{reference}/disconnect", server.protected("DISCONNECT_SESSION", server.execute))
 	mux.HandleFunc("POST /v1/discovery/routers/{router_ref}", server.discoveryProtected)
 	mux.HandleFunc("POST /api/v1/monitoring/collect", server.monitoringProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/identity", server.identityProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/hotspot-survey", server.hotspotSurveyProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/hotspot-accounts", server.hotspotAccountsProtected)
+	mux.HandleFunc("POST /api/v1/monitoring/dhcp-survey", server.dhcpSurveyProtected)
 	mux.HandleFunc("POST /api/v1/monitoring/traffic/collect", server.trafficMonitoringProtected)
 	mux.HandleFunc("GET /v1/discovery/safety/mutation-count", server.mutationCount)
 
 	return mux
+}
+
+func (server *Server) hotspotAccountsProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	provider, ok := server.monitoring.(monitoring.HotspotAccountProvider)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"failure": map[string]string{"code": "HOTSPOT_ACCOUNT_PROVIDER_UNAVAILABLE", "message": "Hotspot account provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || (command.Router.Host == "" && command.CredentialRef == "") {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid Hotspot account request"}})
+		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
+	}
+	users, err := provider.SurveyHotspotAccounts(request.Context(), command.Router)
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"validated_at": time.Now().UTC(), "hotspot_users": users})
+}
+
+func (server *Server) dhcpSurveyProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	provider, ok := server.monitoring.(monitoring.DHCPLeaseSurveyProvider)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"failure": map[string]string{"code": "DHCP_PROVIDER_UNAVAILABLE", "message": "DHCP survey provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || (command.Router.Host == "" && command.CredentialRef == "") {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid DHCP survey request"}})
+		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
+	}
+	leases, err := provider.SurveyDHCPLeases(request.Context(), command.Router)
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"surveyed_at": time.Now().UTC(), "leases": leases})
+}
+
+func (server *Server) hotspotSurveyProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	provider, ok := server.monitoring.(monitoring.HotspotSurveyProvider)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"failure": map[string]string{"code": "SURVEY_PROVIDER_UNAVAILABLE", "message": "Hotspot survey provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || (command.Router.Host == "" && command.CredentialRef == "") {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid Hotspot survey request"}})
+		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
+	}
+	survey, err := provider.SurveyHotspot(request.Context(), command.Router)
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, survey)
+}
+
+func (server *Server) identityProtected(writer http.ResponseWriter, request *http.Request) {
+	if !server.authorized(request.Header.Get("Authorization")) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]any{"reachable": false, "failure": map[string]string{"code": "UNAUTHORIZED", "message": "Unauthorized"}})
+		return
+	}
+	provider, ok := server.monitoring.(monitoring.IdentityProvider)
+	if !ok {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"reachable": false, "failure": map[string]string{"code": "IDENTITY_PROVIDER_UNAVAILABLE", "message": "Identity provider unavailable"}})
+		return
+	}
+	defer request.Body.Close()
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var command monitoringRequest
+	if err := decoder.Decode(&command); err != nil || decoder.Decode(&struct{}{}) != io.EOF || (command.Router.Host == "" && command.CredentialRef == "") {
+		writeJSON(writer, http.StatusBadRequest, map[string]any{"reachable": false, "failure": map[string]string{"code": "INVALID_REQUEST", "message": "Invalid identity request"}})
+		return
+	}
+	if command.CredentialRef != "" {
+		if server.resolver == nil || command.CredentialPurpose != string(credentials.PurposeObserver) || command.CredentialVersion < 1 {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_REFERENCE_INVALID", "message": "Observer credential reference is invalid"}})
+			return
+		}
+		resolved, err := server.resolver.Resolve(request.Context(), credentials.Reference{TenantRef: command.TenantRef, RouterRef: command.RouterRef, AgentRef: command.AgentRef, InstallationID: credentials.InstallationIdentity(command.InstallationID), CredentialRef: command.CredentialRef, Purpose: credentials.Purpose(command.CredentialPurpose), Version: command.CredentialVersion})
+		if err != nil {
+			writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": "CREDENTIAL_RESOLUTION_FAILED", "message": "Observer credential resolution failed"}})
+			return
+		}
+		command.Router = monitoring.RouterTarget{Host: command.Host, Port: command.Port, Username: resolved.Username(), Password: string(resolved.SecretBytes()), Transport: command.Transport, ConnectTimeoutSeconds: command.ConnectTimeoutSeconds, ReadTimeoutSeconds: command.ReadTimeoutSeconds, InsecureTLS: command.InsecureTLS}
+	}
+	snapshot, err := provider.VerifyIdentity(request.Context(), command.Router)
+	if err != nil {
+		failure := monitoring.Classify(err)
+		writeJSON(writer, http.StatusBadGateway, map[string]any{"reachable": false, "failure": map[string]string{"code": string(failure.Code), "message": failure.Message}})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"reachable": true, "collected_at": snapshot.CollectedAt, "identity": snapshot.Router.Identity, "version": snapshot.Router.Version, "architecture": snapshot.Router.Architecture, "board": snapshot.Router.BoardName, "uptime": snapshot.Router.UptimeSeconds, "cpu_load_percent": snapshot.Router.CPULoad, "memory_total_bytes": snapshot.Router.MemoryTotal, "memory_free_bytes": snapshot.Router.MemoryFree})
 }
 
 type monitoringRequest struct {

@@ -9,7 +9,8 @@ class Customer extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tenant_id', 'name', 'phone', 'email', 'address', 'notes', 'status'];
+    protected $fillable = ['tenant_id', 'name', 'phone', 'email', 'address', 'latitude', 'longitude', 'location_updated_at', 'notes', 'status'];
+    protected $casts = ['latitude' => 'float', 'longitude' => 'float', 'location_updated_at' => 'datetime'];
 
     protected static function booted(): void
     {

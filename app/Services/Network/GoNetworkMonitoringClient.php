@@ -30,6 +30,16 @@ class GoNetworkMonitoringClient
         return $this->post('/api/v1/monitoring/traffic/collect', $payload);
     }
 
+    public function validateHotspotAccounts(Router $router): array
+    {
+        $payload = $this->payloadFor($router);
+        if (isset($payload['failure'])) {
+            return $payload;
+        }
+
+        return $this->post('/api/v1/monitoring/hotspot-accounts', $payload, false);
+    }
+
     private function payloadFor(Router $router): array
     {
         if ($router->observer_migration_state === 'LOCAL_OBSERVER_ACTIVE') {
@@ -63,7 +73,7 @@ class GoNetworkMonitoringClient
         return $payload;
     }
 
-    private function post(string $path, array $payload): array
+    private function post(string $path, array $payload, bool $requiresReachability = true): array
     {
         try {
             $response = Http::acceptJson()->asJson()
@@ -78,7 +88,7 @@ class GoNetworkMonitoringClient
         }
 
         $body = $response->json();
-        if (! is_array($body) || ! array_key_exists('reachable', $body) || ! is_bool($body['reachable'])) {
+        if (! is_array($body) || ($requiresReachability && (! array_key_exists('reachable', $body) || ! is_bool($body['reachable'])))) {
             return ['reachable' => false, 'failure' => ['code' => 'ENGINE_UNAVAILABLE', 'message' => 'Go Network Engine returned an invalid monitoring response.']];
         }
 

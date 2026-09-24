@@ -46,6 +46,55 @@
                 <label for="address">Address</label>
                 <textarea id="address" name="address" rows="3">{{ old('address', $customer->address) }}</textarea>
 
+                <label for="latitude">Latitude @error('latitude')<em class="field-error">{{ $message }}</em>@enderror</label>
+                <input id="latitude" name="latitude" type="number" step="0.000001" min="-90" max="90" value="{{ old('latitude', $customer->latitude) }}">
+
+                <label for="longitude">Longitude @error('longitude')<em class="field-error">{{ $message }}</em>@enderror</label>
+                <input id="longitude" name="longitude" type="number" step="0.000001" min="-180" max="180" value="{{ old('longitude', $customer->longitude) }}">
+                <div id="customer-location-picker" data-default-latitude="{{ $gisSettings['default_latitude'] ?? '' }}" data-default-longitude="{{ $gisSettings['default_longitude'] ?? '' }}" data-default-zoom="{{ $gisSettings['default_zoom'] ?? 1.4 }}" data-latitude="{{ old('latitude', $customer->latitude) ?? '' }}" data-longitude="{{ old('longitude', $customer->longitude) ?? '' }}"></div>
+                <p class="field-hint">Customer location is optional and must be supplied explicitly. It is never inferred from network identity.</p>
+
+                @if (! $customer->exists)
+                    <h3>Service</h3>
+                    <p class="field-hint">Monthly service only in V1. Creating this record does not provision or modify RouterOS.</p>
+                    <label for="router_id">Router @error('router_id')<em class="field-error">{{ $message }}</em>@enderror</label>
+                    <select id="router_id" name="router_id" required>
+                        <option value="">Select router</option>
+                        @foreach (($routers ?? collect()) as $router)
+                            <option value="{{ $router->id }}" @selected(old('router_id') == $router->id)>{{ $router->name }} · {{ $router->host }}</option>
+                        @endforeach
+                    </select>
+
+                    <label for="connection_mode">Connection mode @error('connection_mode')<em class="field-error">{{ $message }}</em>@enderror</label>
+                    <select id="connection_mode" name="connection_mode" required>
+                        <option value="simple_queue" @selected(old('connection_mode', 'simple_queue') === 'simple_queue')>Static IP / Simple Queue</option>
+                        <option value="hotspot" @selected(old('connection_mode') === 'hotspot')>Hotspot Account</option>
+                    </select>
+
+                    <label for="network_identity"><span data-connection-identity-label>Network identity / IP</span> @error('network_identity')<em class="field-error">{{ $message }}</em>@enderror</label>
+                    <input id="network_identity" name="network_identity" value="{{ old('network_identity') }}" placeholder="10.10.12.50/32" required>
+
+                    <label for="internet_package_id">Package <span class="field-hint">optional</span> @error('internet_package_id')<em class="field-error">{{ $message }}</em>@enderror</label>
+                    <select id="internet_package_id" name="internet_package_id">
+                        <option value="">No package selected</option>
+                        @foreach (($packages ?? collect()) as $package)
+                            <option value="{{ $package->id }}" @selected(old('internet_package_id') == $package->id)>{{ $package->name }} · {{ $package->download_mbps }}/{{ $package->upload_mbps }} Mbps</option>
+                        @endforeach
+                    </select>
+                @else
+                    @php($currentConnection = $customer->connections()->with('router')->latest('id')->first())
+                    @if ($currentConnection)
+                        <h3>Current service</h3>
+                        <div class="customer-form-connection-summary">
+                            <div><span class="cell-sub">Access mode</span><strong>{{ $currentConnection->access_mode_label }}</strong></div>
+                            <div><span class="cell-sub">Network mechanism</span><strong>{{ $currentConnection->network_mechanism_label }}</strong></div>
+                            <div><span class="cell-sub">Router</span><strong>{{ $currentConnection->router?->name ?? '—' }}</strong></div>
+                            <div><span class="cell-sub">Stable identity</span><strong class="mono-value">{{ $currentConnection->metadata['network_identity'] ?? $currentConnection->networkAccount?->username ?? '—' }}</strong></div>
+                        </div>
+                        <p class="field-hint">Connection mode and stable network identity are managed by the existing connection/adoption workflows and are not changed by this customer record form.</p>
+                    @endif
+                @endif
+
                 <label for="notes">Notes</label>
                 <textarea id="notes" name="notes" rows="3">{{ old('notes', $customer->notes) }}</textarea>
 
@@ -63,4 +112,20 @@
             </form>
         </div>
     </section>
+    @if (! $customer->exists)
+        <script>
+            (() => {
+                const mode = document.getElementById('connection_mode');
+                const identity = document.getElementById('network_identity');
+                const label = document.querySelector('[data-connection-identity-label]');
+                const sync = () => {
+                    const hotspot = mode?.value === 'hotspot';
+                    if (label) label.textContent = hotspot ? 'Hotspot username / identity' : 'Network identity / IP';
+                    if (identity) identity.placeholder = hotspot ? 'feri-hotspot' : '10.10.12.50/32';
+                };
+                mode?.addEventListener('change', sync);
+                sync();
+            })();
+        </script>
+    @endif
 @endsection

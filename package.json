@@ -18,6 +18,7 @@
     },
     "dependencies": {
         "cytoscape": "^3.34.3",
+        "leaflet": "^1.9.4",
         "vue": "^3.5.42"
     }
 }

@@ -16,6 +16,10 @@ import (
 )
 
 var monitoringCommands = []string{"/system/resource/print", "/system/identity/print", "/ppp/active/print"}
+var identityCommands = []string{"/system/identity/print", "/system/resource/print"}
+var hotspotSurveyCommands = []string{"/ip/arp/print", "/ip/hotspot/user/print", "/ip/hotspot/active/print"}
+var hotspotAccountCommand = "/ip/hotspot/user/print"
+var dhcpSurveyCommand = "/ip/dhcp-server/lease/print"
 
 type RouterOSMonitoringProvider struct {
 	newTransport     func() provider.RouterOSTransport
@@ -71,6 +75,183 @@ func (p *RouterOSMonitoringProvider) Collect(ctx context.Context, target RouterT
 		sessions = append(sessions, PPPSession{Name: row["name"], Service: service, Address: row["address"], Uptime: row["uptime"]})
 	}
 	return Snapshot{CollectedAt: time.Now().UTC(), Router: RouterResource{Identity: identity["name"], Version: resource["version"], Architecture: resource["architecture-name"], BoardName: resource["board-name"], UptimeSeconds: durationSeconds(resource["uptime"]), CPULoad: intValue(resource["cpu-load"]), MemoryTotal: intValue64(resource["total-memory"]), MemoryFree: intValue64(resource["free-memory"])}, PPPSessions: sessions}, nil
+}
+
+// VerifyIdentity performs the first-contact read-only check. It deliberately
+// does not call Collect because that method also reads /ppp/active/print.
+func (p *RouterOSMonitoringProvider) VerifyIdentity(ctx context.Context, target RouterTarget) (Snapshot, error) {
+	if target.Host == "" || target.Port <= 0 || target.Username == "" || target.Transport == "" {
+		return Snapshot{}, &Error{Code: FailureRouterProtocol, Message: "invalid RouterOS identity target"}
+	}
+	if target.InsecureTLS && !p.allowInsecureTLS {
+		return Snapshot{}, &Error{Code: FailureRouterProtocol, Message: "insecure RouterOS TLS is disabled"}
+	}
+	transport := p.newTransport()
+	connection := network.DiscoveryConnection{Host: target.Host, Port: target.Port, Username: target.Username, Password: target.Password, Transport: target.Transport, ConnectTimeoutSeconds: target.ConnectTimeoutSeconds, ReadTimeoutSeconds: target.ReadTimeoutSeconds, InsecureTLS: target.InsecureTLS}
+	if connection.ConnectTimeoutSeconds <= 0 {
+		connection.ConnectTimeoutSeconds = 3
+	}
+	if connection.ReadTimeoutSeconds <= 0 {
+		connection.ReadTimeoutSeconds = 5
+	}
+	if err := transport.Connect(ctx, connection); err != nil {
+		return Snapshot{}, classifyRouterError(err)
+	}
+	defer transport.Close()
+
+	reads := make(map[string][]map[string]string, len(identityCommands))
+	for _, command := range identityCommands {
+		readCtx, cancel := context.WithTimeout(ctx, time.Duration(connection.ReadTimeoutSeconds)*time.Second)
+		rows, err := transport.Read(readCtx, command)
+		cancel()
+		if err != nil {
+			return Snapshot{}, classifyRouterError(err)
+		}
+		reads[command] = rows
+	}
+	resource := first(reads["/system/resource/print"])
+	identity := first(reads["/system/identity/print"])
+	return Snapshot{CollectedAt: time.Now().UTC(), Router: RouterResource{
+		Identity: identity["name"], Version: resource["version"], Architecture: resource["architecture-name"],
+		BoardName: resource["board-name"], UptimeSeconds: durationSeconds(resource["uptime"]),
+		CPULoad: intValue(resource["cpu-load"]), MemoryTotal: intValue64(resource["total-memory"]), MemoryFree: intValue64(resource["free-memory"]),
+	}}, nil
+}
+
+// SurveyHotspot performs only the explicitly authorized ARP and Hotspot reads.
+// Password/secret-shaped fields are discarded before the result is returned.
+func (p *RouterOSMonitoringProvider) SurveyHotspot(ctx context.Context, target RouterTarget) (HotspotSurvey, error) {
+	if target.Host == "" || target.Port <= 0 || target.Username == "" || target.Transport == "" {
+		return HotspotSurvey{}, &Error{Code: FailureRouterProtocol, Message: "invalid RouterOS survey target"}
+	}
+	if target.InsecureTLS && !p.allowInsecureTLS {
+		return HotspotSurvey{}, &Error{Code: FailureRouterProtocol, Message: "insecure RouterOS TLS is disabled"}
+	}
+	transport := p.newTransport()
+	connection := network.DiscoveryConnection{Host: target.Host, Port: target.Port, Username: target.Username, Password: target.Password, Transport: target.Transport, ConnectTimeoutSeconds: target.ConnectTimeoutSeconds, ReadTimeoutSeconds: target.ReadTimeoutSeconds, InsecureTLS: target.InsecureTLS}
+	if connection.ConnectTimeoutSeconds <= 0 {
+		connection.ConnectTimeoutSeconds = 3
+	}
+	if connection.ReadTimeoutSeconds <= 0 {
+		connection.ReadTimeoutSeconds = 5
+	}
+	if err := transport.Connect(ctx, connection); err != nil {
+		return HotspotSurvey{}, classifyRouterError(err)
+	}
+	defer transport.Close()
+
+	reads := make(map[string][]map[string]string, len(hotspotSurveyCommands))
+	for _, command := range hotspotSurveyCommands {
+		readCtx, cancel := context.WithTimeout(ctx, time.Duration(connection.ReadTimeoutSeconds)*time.Second)
+		rows, err := transport.Read(readCtx, command)
+		cancel()
+		if err != nil {
+			return HotspotSurvey{}, classifyRouterError(err)
+		}
+		reads[command] = rows
+	}
+
+	return HotspotSurvey{
+		SurveyedAt:     time.Now().UTC(),
+		ARPEntries:     normalizeSurveyARP(reads["/ip/arp/print"]),
+		HotspotUsers:   normalizeHotspotUsers(reads["/ip/hotspot/user/print"]),
+		ActiveSessions: normalizeHotspotSessions(reads["/ip/hotspot/active/print"]),
+	}, nil
+}
+
+// SurveyHotspotAccounts validates local Hotspot usernames without collecting
+// ARP, active sessions, or any other observation data.
+func (p *RouterOSMonitoringProvider) SurveyHotspotAccounts(ctx context.Context, target RouterTarget) ([]HotspotUserSurveyEntry, error) {
+	if target.Host == "" || target.Port <= 0 || target.Username == "" || target.Transport == "" {
+		return nil, &Error{Code: FailureRouterProtocol, Message: "invalid RouterOS Hotspot account target"}
+	}
+	if target.InsecureTLS && !p.allowInsecureTLS {
+		return nil, &Error{Code: FailureRouterProtocol, Message: "insecure RouterOS TLS is disabled"}
+	}
+	transport := p.newTransport()
+	connection := network.DiscoveryConnection{Host: target.Host, Port: target.Port, Username: target.Username, Password: target.Password, Transport: target.Transport, ConnectTimeoutSeconds: target.ConnectTimeoutSeconds, ReadTimeoutSeconds: target.ReadTimeoutSeconds, InsecureTLS: target.InsecureTLS}
+	if connection.ConnectTimeoutSeconds <= 0 {
+		connection.ConnectTimeoutSeconds = 3
+	}
+	if connection.ReadTimeoutSeconds <= 0 {
+		connection.ReadTimeoutSeconds = 5
+	}
+	if err := transport.Connect(ctx, connection); err != nil {
+		return nil, classifyRouterError(err)
+	}
+	defer transport.Close()
+	readCtx, cancel := context.WithTimeout(ctx, time.Duration(connection.ReadTimeoutSeconds)*time.Second)
+	rows, err := transport.Read(readCtx, hotspotAccountCommand)
+	cancel()
+	if err != nil {
+		return nil, classifyRouterError(err)
+	}
+	return normalizeHotspotUsers(rows), nil
+}
+
+func (p *RouterOSMonitoringProvider) SurveyDHCPLeases(ctx context.Context, target RouterTarget) ([]DHCPLeaseSurveyEntry, error) {
+	if target.Host == "" || target.Port <= 0 || target.Username == "" || target.Transport == "" {
+		return nil, &Error{Code: FailureRouterProtocol, Message: "invalid RouterOS DHCP survey target"}
+	}
+	if target.InsecureTLS && !p.allowInsecureTLS {
+		return nil, &Error{Code: FailureRouterProtocol, Message: "insecure RouterOS TLS is disabled"}
+	}
+	transport := p.newTransport()
+	connection := network.DiscoveryConnection{Host: target.Host, Port: target.Port, Username: target.Username, Password: target.Password, Transport: target.Transport, ConnectTimeoutSeconds: target.ConnectTimeoutSeconds, ReadTimeoutSeconds: target.ReadTimeoutSeconds, InsecureTLS: target.InsecureTLS}
+	if connection.ConnectTimeoutSeconds <= 0 {
+		connection.ConnectTimeoutSeconds = 3
+	}
+	if connection.ReadTimeoutSeconds <= 0 {
+		connection.ReadTimeoutSeconds = 5
+	}
+	if err := transport.Connect(ctx, connection); err != nil {
+		return nil, classifyRouterError(err)
+	}
+	defer transport.Close()
+	readCtx, cancel := context.WithTimeout(ctx, time.Duration(connection.ReadTimeoutSeconds)*time.Second)
+	rows, err := transport.Read(readCtx, dhcpSurveyCommand)
+	cancel()
+	if err != nil {
+		return nil, classifyRouterError(err)
+	}
+	result := make([]DHCPLeaseSurveyEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, DHCPLeaseSurveyEntry{
+			Address: row["address"], MACAddress: normalizeSurveyMAC(row["mac-address"]), HostName: row["host-name"], ClientID: row["client-id"],
+			Server: row["server"], Status: row["status"], Dynamic: surveyBool(row["dynamic"]), LastSeen: row["last-seen"], ExpiresAfter: row["expires-after"],
+		})
+	}
+	return result, nil
+}
+
+func normalizeSurveyARP(rows []map[string]string) []ARPSurveyEntry {
+	result := make([]ARPSurveyEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, ARPSurveyEntry{Address: row["address"], MACAddress: normalizeSurveyMAC(row["mac-address"]), Interface: row["interface"], Complete: surveyBool(row["complete"]), Dynamic: surveyBool(row["dynamic"])})
+	}
+	return result
+}
+
+func normalizeHotspotUsers(rows []map[string]string) []HotspotUserSurveyEntry {
+	result := make([]HotspotUserSurveyEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, HotspotUserSurveyEntry{Username: strings.TrimSpace(row["name"]), Profile: row["profile"], Disabled: surveyBool(row["disabled"]), Comment: row["comment"]})
+	}
+	return result
+}
+
+func normalizeHotspotSessions(rows []map[string]string) []HotspotSessionSurveyEntry {
+	result := make([]HotspotSessionSurveyEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, HotspotSessionSurveyEntry{Username: strings.TrimSpace(row["user"]), Address: row["address"], MACAddress: normalizeSurveyMAC(row["mac-address"]), Server: row["server"], LoginBy: row["login-by"], Uptime: row["uptime"]})
+	}
+	return result
+}
+
+func normalizeSurveyMAC(value string) string { return strings.ToUpper(strings.TrimSpace(value)) }
+func surveyBool(value string) bool {
+	parsed, _ := strconv.ParseBool(strings.TrimSpace(value))
+	return parsed
 }
 
 func first(rows []map[string]string) map[string]string {

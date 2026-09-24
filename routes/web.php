@@ -11,6 +11,10 @@ use App\Http\Controllers\MonitoringController;
 use App\Http\Controllers\NetworkAccountController;
 use App\Http\Controllers\NetworkAgentController;
 use App\Http\Controllers\NetworkDiscoveryController;
+use App\Http\Controllers\NetworkTopologyController;
+use App\Http\Controllers\NetworkMapController;
+use App\Http\Controllers\GisNetworkMapSettingsController;
+use App\Http\Controllers\DeviceDirectoryController;
 use App\Http\Controllers\OperationLogController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentRequestController;
@@ -27,6 +31,8 @@ Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/settings/gis-network-map', [GisNetworkMapSettingsController::class, 'edit'])->name('settings.gis-network-map.index');
+    Route::put('/settings/gis-network-map', [GisNetworkMapSettingsController::class, 'update'])->name('settings.gis-network-map.update');
     Route::get('/billing/invoices', [BillingController::class, 'index'])->name('billing.invoices.index');
     Route::get('/billing/invoices/{invoice}', [BillingController::class, 'show'])->name('billing.invoices.show');
     Route::post('/billing/generate', [BillingController::class, 'generate'])->name('billing.generate');
@@ -65,11 +71,20 @@ Route::middleware('auth')->group(function () {
     Route::post('/routers/{router}/observer-reference/bind', [RouterController::class, 'bindObserverReference'])->name('routers.observer-reference.bind');
     Route::post('/routers/{router}/observer-reference/activate', [RouterController::class, 'activateObserverReference'])->name('routers.observer-reference.activate');
     Route::get('/network/accounts', [NetworkAccountController::class, 'index'])->name('network.accounts.index');
+    Route::get('/network/devices', [DeviceDirectoryController::class, 'index'])->name('network.devices.index');
+    Route::get('/network/devices/{observation}', [DeviceDirectoryController::class, 'show'])->name('network.devices.show');
     Route::get('/network/agents', [NetworkAgentController::class, 'index'])->name('network.agents.index');
     Route::get('/network/agents/{agent}', [NetworkAgentController::class, 'show'])->name('network.agents.show');
     Route::get('/network/discovery', [NetworkDiscoveryController::class, 'index'])->name('network.discovery.index');
+    Route::post('/network/discovery/import/review', [NetworkDiscoveryController::class, 'importReview'])->name('network.discovery.import.review');
+    Route::post('/network/discovery/import/confirm', [NetworkDiscoveryController::class, 'importConfirm'])->name('network.discovery.import.confirm');
+    Route::get('/network/topology', NetworkTopologyController::class)->name('network.topology.index');
+    Route::get('/network/map', NetworkMapController::class)->name('network.map.index');
     Route::post('/network/discovery/routers/{router}', [NetworkDiscoveryController::class, 'discover'])->name('network.discovery.run');
     Route::post('/network/discovery/resources/{resource}/adopt', [NetworkDiscoveryController::class, 'adopt'])->name('network.discovery.adopt');
+    Route::post('/network/discovery/resources/{resource}/customer', [NetworkDiscoveryController::class, 'createCustomer'])->name('network.discovery.customers.store');
+    Route::post('/network/discovery/bulk-review', [NetworkDiscoveryController::class, 'bulkReview'])->name('network.discovery.bulk-review');
+    Route::post('/network/discovery/bulk-adopt', [NetworkDiscoveryController::class, 'bulkAdopt'])->name('network.discovery.bulk-adopt');
     Route::post('/network/discovery/resources/{resource}/unadopt', [NetworkDiscoveryController::class, 'unadopt'])->name('network.discovery.unadopt');
     Route::post('/network/accounts', [NetworkAccountController::class, 'store'])->name('network.accounts.store');
     Route::post('/network/accounts/{account}/disable', fn (NetworkAccount $account, NetworkAccountController $controller, NetworkOperationService $operations) => $controller->status($account, 'disabled', $operations))->name('network.accounts.disable');

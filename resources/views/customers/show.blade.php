@@ -41,9 +41,33 @@
                         <dd>{{ $customer->email ?: '—' }}</dd>
                         <dt>Address</dt>
                         <dd>{{ $customer->address ?: '—' }}</dd>
+                        <dt>Location</dt>
+                        <dd class="mono-value">{{ $customer->latitude !== null && $customer->longitude !== null ? $customer->latitude.', '.$customer->longitude : 'Location not set' }}</dd>
                         <dt>Notes</dt>
                         <dd>{{ $customer->notes ?: '—' }}</dd>
                     </dl>
+                </div>
+            </section>
+
+            <section class="panel" aria-labelledby="customer-devices">
+                <div class="panel__head"><div><p class="panel__kicker">Presence</p><h2 class="panel__title" id="customer-devices">Devices / Network Presence</h2></div><span class="panel__meta">read-only observations</span></div>
+                <div class="panel__body panel__body--flush">
+                    @php
+                        $observations = $customer->connections->flatMap(fn ($connection) => $connection->deviceObservations);
+                    @endphp
+                    @forelse($observations as $observation)
+                        <div class="feed__item">
+                            <span class="feed__label">{{ $observation->ip_address ?: $observation->network_identity }}</span>
+                            <span class="feed__detail">{{ $observation->mac_address ?: 'MAC unavailable' }} · {{ $observation->interface ?: $observation->server ?: $observation->source }}</span>
+                            <span class="feed__detail">Vendor: {{ $observation->macVendor?->vendor ?? 'Unknown' }}</span>
+                            @if(!empty($observation->metadata['dhcp_hostname']))
+                                <span class="feed__detail">Device name: {{ $observation->metadata['dhcp_hostname'] }}</span>
+                            @endif
+                            <time class="feed__time">Last seen {{ $observation->last_seen_at?->diffForHumans() }}</time>
+                        </div>
+                    @empty
+                        <p class="empty-state">No device presence observed yet.</p>
+                    @endforelse
                 </div>
             </section>
             <section class="panel" aria-labelledby="customer-connections">
@@ -64,8 +88,9 @@
                             @php $health = $connection->networkHealth?->health_state ?? 'unknown'; @endphp
                             <li class="rack__row">
                                 <span class="rack__id">
-                                    <span class="rack__name">{{ $connection->internetPackage?->name ?? 'No package' }}</span>
-                                    <span class="rack__sub">{{ $connection->connection_code }} · {{ $connection->internetPackage?->download_mbps }}/{{ $connection->internetPackage?->upload_mbps }} Mbps · {{ $connection->networkAccount?->username ?? 'no PPPoE account yet' }}</span>
+                                    <span class="rack__name">{{ $connection->access_mode !== 'unknown' ? $connection->access_mode_label : ($connection->internetPackage?->name ?? 'Connection') }}</span>
+                                    <span class="cell-sub">Mechanism: {{ $connection->network_mechanism_label }}</span>
+                                    <span class="rack__sub">{{ $connection->connection_code }} · {{ $connection->metadata['network_identity'] ?? $connection->networkAccount?->username ?? 'No network identity' }}</span>
                                 </span>
                                 <span class="rack__field">
                                     <span class="rack__field-label">Router</span>
@@ -112,10 +137,14 @@
                                     @if ($connection->status === 'active')
                                         <span class="cell-muted">In service</span>
                                     @else
-                                        <form class="inline-form" method="post" action="{{ route('connections.provision', $connection) }}">
+                                    @if ($connection->network_mechanism === 'simple_queue')
+                                        <span class="cell-muted">ADOPTED · RouterOS unchanged</span>
+                                    @else
+                                    <form class="inline-form" method="post" action="{{ route('connections.provision', $connection) }}">
                                             @csrf
                                             <button type="submit" class="button--sm">{{ $connection->status === 'failed' ? 'Retry provisioning' : 'Provision connection' }}</button>
-                                        </form>
+                                    </form>
+                                    @endif
                                     @endif
                                 </span>
                             </li>

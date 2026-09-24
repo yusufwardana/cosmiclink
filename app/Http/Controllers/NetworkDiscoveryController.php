@@ -11,6 +11,8 @@ use App\Services\Network\AdoptDiscoveredNetworkResource;
 use App\Services\Network\NetworkAgentService;
 use App\Services\Network\NetworkDiscoveryService;
 use App\Services\Network\NetworkReconciliationService;
+use App\Services\Network\AdoptSimpleQueueCustomer;
+use App\Services\Network\DiscoveryCustomerImportService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -75,7 +77,7 @@ class NetworkDiscoveryController extends Controller
         'caller_id' => 'Caller ID',
     ];
 
-    public function index(Request $request, NetworkReconciliationService $reconciliation)
+    public function index(Request $request, NetworkReconciliationService $reconciliation, DiscoveryCustomerImportService $imports)
     {
         $tenant = Auth::user()->tenant_id;
         $routers = Router::where('tenant_id', $tenant)->with('discoverySnapshots')->get();
@@ -165,7 +167,9 @@ class NetworkDiscoveryController extends Controller
             'facts' => $this->detailFacts($resource),
             'status' => $statuses[$resource->id] ?? 'NEW',
             'suggestion' => $suggestions[$resource->id] ?? null,
+            'eligible_for_bulk' => $resource->management_state === 'DISCOVERED' && $this->isIndividualQueue($resource),
         ]);
+        $bulkEligibleOnPage = $rows->contains(fn (array $row) => $row['eligible_for_bulk'] === true);
 
         $sourceRouters = $routers
             ->filter(fn (Router $router) => $latestDiscovery[$router->id] !== null)
@@ -173,9 +177,16 @@ class NetworkDiscoveryController extends Controller
             ->values();
         $sourceRouter = $sourceRouters->first();
 
+        $importUniverse = $imports->candidates($tenant);
+        $pageResourceIds = $resources->getCollection()->pluck('id')->all();
+        $importCandidates = collect($importUniverse['candidates'])
+            ->filter(fn (array $candidate) => count(array_intersect($candidate['resource_ids'], $pageResourceIds)) > 0)
+            ->values();
+
         return view('network.discovery', [
             'routers' => $routers,
             'rows' => $rows,
+            'bulkEligibleOnPage' => $bulkEligibleOnPage,
             'resources' => $resources,
             'reconciliation' => $statuses,
             'suggestions' => $suggestions,
@@ -194,7 +205,100 @@ class NetworkDiscoveryController extends Controller
             'sourceRouter' => $sourceRouter,
             'source' => $sourceRouter ? $latestDiscovery[$sourceRouter->id] : null,
             'sourceRouterCount' => $sourceRouters->count(),
+            'importCandidates' => [
+                'candidates' => $importCandidates->all(),
+                'simple' => $importCandidates->where('kind', 'simple_queue')->all(),
+                'hotspot' => $importCandidates->where('kind', 'hotspot')->all(),
+                'summary' => $importUniverse['summary'],
+            ],
         ]);
+    }
+
+    public function importReview(Request $request, DiscoveryCustomerImportService $imports)
+    {
+        $keys = $request->validate(['candidates' => ['required', 'array', 'min:1', 'max:100'], 'candidates.*' => ['string', 'max:255']])['candidates'];
+        $universe = $imports->candidates(Auth::user()->tenant_id);
+        $selectedKeys = collect($keys)->unique()->values()->all();
+
+        return view('network.discovery-import-review', [
+            'candidates' => $universe['candidates'],
+            'summary' => $universe['summary'],
+            'selectedKeys' => $selectedKeys,
+        ]);
+    }
+
+    public function importConfirm(Request $request, DiscoveryCustomerImportService $imports)
+    {
+        $data = $request->validate(['candidate_keys' => ['required', 'array', 'min:1', 'max:100'], 'candidate_keys.*' => ['string'], 'names' => ['required', 'array']]);
+        $items = $imports->selected($data['candidate_keys'], Auth::user()->tenant_id, true);
+        $items = array_map(fn (array $item): array => $item + ['names' => $data['names']], $items);
+        $created = $imports->import(Auth::user(), $items);
+        return redirect()->route('customers.index')->with('status', count($created).' Discovery customer import(s) created locally.');
+    }
+
+    public function createCustomer(Request $request, DiscoveredNetworkResource $resource, AdoptSimpleQueueCustomer $adopt)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'status' => ['required', 'in:active,inactive'],
+        ]);
+        $customer = $adopt->handle($resource, Auth::user(), $data['name'], $data['status']);
+
+        return redirect()->route('customers.show', $customer)->with('status', 'Discovery identity adopted as a Customer without RouterOS changes.');
+    }
+
+    public function bulkReview(Request $request)
+    {
+        $ids = collect($request->input('resource_ids', []))->map(fn ($id) => (int) $id)->filter()->unique()->values();
+        abort_if($ids->isEmpty(), 422, 'Select at least one eligible Simple Queue identity.');
+        abort_if($ids->count() > 50, 422, 'Select no more than 50 identities per bulk operation.');
+
+        $resources = DiscoveredNetworkResource::query()
+            ->where('tenant_id', Auth::user()->tenant_id)
+            ->whereIn('id', $ids)
+            ->where('resource_type', 'queue')
+            ->where('management_state', 'DISCOVERED')
+            ->get()
+            ->filter(fn (DiscoveredNetworkResource $resource) => $this->isIndividualQueue($resource))
+            ->values();
+        abort_if($resources->isEmpty(), 422, 'No selected resource is eligible for adoption.');
+
+        return view('network.discovery-bulk-review', compact('resources'));
+    }
+
+    public function bulkAdopt(Request $request, AdoptSimpleQueueCustomer $adopt)
+    {
+        $ids = collect($request->input('resource_ids', []))->map(fn ($id) => (int) $id)->filter()->unique()->values();
+        abort_if($ids->isEmpty() || $ids->count() > 50, 422, 'Invalid bulk selection.');
+        $resources = DiscoveredNetworkResource::query()->where('tenant_id', Auth::user()->tenant_id)->whereIn('id', $ids)->get();
+        $results = ['adopted' => [], 'skipped' => [], 'failed' => []];
+
+        foreach ($resources as $resource) {
+            if ($resource->management_state === 'ADOPTED') {
+                $results['skipped'][] = ['name' => $resource->name, 'reason' => 'Already adopted'];
+                continue;
+            }
+            if (! $this->isIndividualQueue($resource)) {
+                $results['skipped'][] = ['name' => $resource->name, 'reason' => 'Not an individual subscriber'];
+                continue;
+            }
+            try {
+                $customer = $adopt->handle($resource, Auth::user(), $resource->name, 'active');
+                $results['adopted'][] = ['name' => $resource->name, 'customer_id' => $customer->id, 'connection_id' => $customer->connections()->latest('id')->value('id'), 'resource_id' => $resource->id];
+            } catch (\Throwable $exception) {
+                $results['failed'][] = ['name' => $resource->name, 'reason' => $exception->getMessage()];
+            }
+        }
+
+        return redirect()->route('network.discovery.index', ['type' => 'queue'])->with('bulk_adoption_results', $results);
+    }
+
+    private function isIndividualQueue(DiscoveredNetworkResource $resource): bool
+    {
+        $target = $resource->normalized_data['target'] ?? null;
+        if (! is_string($target) || $target === '' || str_contains($target, ',') || ! str_ends_with($target, '/32')) return false;
+        $slash = strrpos($target, '/');
+        return is_int($slash) && filter_var(substr($target, 0, $slash), FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
     }
 
     /**

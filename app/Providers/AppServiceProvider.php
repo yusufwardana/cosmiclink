@@ -35,8 +35,10 @@ use App\Services\Network\NetworkDiscoveryClient;
 use App\Services\Network\NetworkDriver;
 use App\Services\Payments\FakePaymentGateway;
 use App\Services\Payments\PaymentGateway;
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -75,6 +77,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->registerTestDatabaseSafetyGuard();
+
         // Canonical network-operation capability. Tenancy is composed on top of
         // this by the object policies (see RouterPolicy::operate), so belonging
         // to a tenant can never by itself authorize a device operation.
@@ -90,5 +94,46 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Payment::class, PaymentPolicy::class);
         Gate::policy(PaymentRequest::class, PaymentRequestPolicy::class);
         Gate::policy(OutageIncident::class, OutageIncidentPolicy::class);
+    }
+
+    private function registerTestDatabaseSafetyGuard(): void
+    {
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
+        $this->app['events']->listen(CommandStarting::class, function (CommandStarting $event): void {
+            if (! $this->app->environment('testing') || ! $this->isDestructiveDatabaseCommand($event->command)) {
+                return;
+            }
+
+            $configuredDatabase = trim((string) config('database.connections.'.config('database.default').'.database'));
+            $configuredUrl = trim((string) config('database.connections.'.config('database.default').'.url'));
+
+            if ($configuredDatabase === 'cosmiclink_test' && $configuredUrl === '') {
+                return;
+            }
+
+            $observed = $configuredDatabase === '' ? '(empty)' : $configuredDatabase;
+
+            throw new RuntimeException(
+                'TEST DATABASE SAFETY GUARD: refusing destructive command ['.$event->command.']. '
+                .'APP_ENV=testing must target exactly [cosmiclink_test] with no DB_URL override; '
+                .'resolved database is ['.$observed.']. The runtime database [cosmiclink] and every '
+                .'unknown database are protected.'
+            );
+        });
+    }
+
+    private function isDestructiveDatabaseCommand(?string $command): bool
+    {
+        if (! is_string($command) || trim($command) === '') {
+            return false;
+        }
+
+        return preg_match(
+            '/^(migrate:(fresh|refresh|reset|rollback)|migrate|db:(wipe|seed)|schema:dump)$/',
+            trim($command)
+        ) === 1;
     }
 }

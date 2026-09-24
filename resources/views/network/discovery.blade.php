@@ -139,9 +139,24 @@
     </form>
 
     <div class="panel__body panel__body--flush">
+        @if(session('bulk_adoption_results'))
+            @php($bulk = session('bulk_adoption_results'))
+            <div class="panel__body"><p class="console-note">Bulk adoption completed · Adopted: {{ count($bulk['adopted']) }} · Skipped: {{ count($bulk['skipped']) }} · Failed: {{ count($bulk['failed']) }}</p></div>
+        @endif
+        @if($bulkEligibleOnPage)
+            <form method="post" action="{{ route('network.discovery.bulk-review') }}" id="bulk-discovery-form">@csrf</form>
+            <div class="discovery-bulk-bar" data-bulk-bar>
+                <div class="discovery-bulk-bar__count"><strong data-bulk-count>0 selected</strong><span class="console-note">current page only · max 50 per operation</span><span class="field-error" data-bulk-limit-message hidden>Select no more than 50 identities per bulk operation.</span></div>
+                <div class="discovery-bulk-bar__actions">
+                    <button class="button button--quiet button--sm" type="button" data-bulk-select>Select Eligible</button>
+                    <button class="button button--quiet button--sm" type="button" data-bulk-clear>Clear</button>
+                    <button class="button button--primary button--sm" type="submit" form="bulk-discovery-form" data-bulk-submit disabled>Adopt Selected Customers</button>
+                </div>
+            </div>
+        @endif
         <div class="table-scroll">
             <table class="discovery-table">
-                <thead><tr>@foreach($columns as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
+                <thead><tr>@if($bulkEligibleOnPage)<th class="discovery-select-column"><span class="sr-only">Select</span></th>@endif @foreach($columns as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
                 <tbody>
                 @forelse($rows as $row)
                     @php($resource = $row['resource'])
@@ -152,12 +167,29 @@
                                 @if(! empty($cell['sub']))<span class="cell-sub">{{ $cell['sub'] }}</span>@endif
                             </td>
                         @endforeach
+                        @if($bulkEligibleOnPage)
+                            <td class="discovery-select-column">
+                                @if($row['eligible_for_bulk'] ?? false)
+                                    <input class="discovery-bulk-checkbox" type="checkbox" name="resource_ids[]" value="{{ $resource->id }}" aria-label="Select {{ $resource->name }}" form="bulk-discovery-form">
+                                @endif
+                            </td>
+                        @endif
                         <td>
                             <span class="ui-status-badge {{ $resource->management_state === 'ADOPTED' ? 'ui-status-badge--active' : 'ui-status-badge--unknown' }}">{{ $resource->management_state }}</span>
                             <span class="cell-sub mono-value">[{{ $row['status'] }}] on {{ $resource->router?->name ?? '—' }}</span>
                         </td>
                         <td><time datetime="{{ $resource->last_seen_at?->toIso8601String() }}" title="{{ $resource->last_seen_at?->format('Y-m-d H:i:s') ?? '' }}">{{ $resource->last_seen_at?->diffForHumans() ?? '—' }}</time></td>
-                        <td><button class="button--quiet button--sm" type="button" data-detail-open="{{ $resource->id }}">View</button></td>
+                        <td>
+                            <button class="button--quiet button--sm" type="button" data-detail-open="{{ $resource->id }}">View</button>
+                            @if($resource->resource_type === 'queue' && ! str_contains((string) ($resource->normalized_data['target'] ?? ''), ',') && str_ends_with((string) ($resource->normalized_data['target'] ?? ''), '/32') && $resource->management_state === 'DISCOVERED')
+                                <form method="post" action="{{ route('network.discovery.customers.store', $resource) }}" class="inline-form" style="margin-top:6px">
+                                    @csrf
+                                    <input type="hidden" name="name" value="{{ $resource->name }}">
+                                    <input type="hidden" name="status" value="active">
+                                    <button class="button--primary button--sm" type="submit">Create / Link Customer</button>
+                                </form>
+                            @endif
+                        </td>
                     </tr>
                 @empty
                     <tr><td colspan="{{ count($columns) }}">
@@ -212,6 +244,27 @@
                 @endif
             </nav>
         @endif
+    </div>
+</section>
+<section class="panel" id="import-customers">
+    <div class="panel__head"><div><p class="panel__kicker">Customer reconstruction</p><h2 class="panel__title">Import Customers</h2><p class="panel__meta">Explicit local import only. RouterOS remains read-only and aggregate/system queues are excluded.</p></div><span class="panel__meta">{{ count($importCandidates['simple']) + count($importCandidates['hotspot']) }} candidates</span></div>
+    <div class="panel__body">
+        <form method="post" action="{{ route('network.discovery.import.review') }}">
+            @csrf
+            <h3>Simple Queue candidates</h3>
+            @forelse(collect($importCandidates['simple'])->where('state', 'READY') as $candidate)
+                <label class="discovery-import-candidate"><input type="checkbox" name="candidates[]" value="{{ $candidate['key'] }}"> <strong>{{ $candidate['default_name'] }}</strong> <span class="mono-value">{{ $candidate['network_identity'] }}</span></label>
+            @empty
+                <p class="console-note">No Simple Queue candidates.</p>
+            @endforelse
+            <h3>Hotspot monthly candidates</h3>
+            @forelse(collect($importCandidates['hotspot'])->where('state', 'READY') as $candidate)
+                <label class="discovery-import-candidate"><input type="checkbox" name="candidates[]" value="{{ $candidate['key'] }}"> <strong>{{ $candidate['name'] }}</strong> <span class="mono-value">{{ implode(', ', $candidate['discovery_evidence']) }}</span> <span class="field-hint">one Customer per username</span></label>
+            @empty
+                <p class="console-note">No Hotspot monthly candidates.</p>
+            @endforelse
+            <button class="button--primary button--sm" type="submit">Review Selected Imports</button>
+        </form>
     </div>
 </section>
 
@@ -343,4 +396,32 @@
         drawer.addEventListener('click', (event) => { if (event.target === drawer) { drawer.close(); } });
     })();
 </script>
+        @if($bulkEligibleOnPage)
+<script>
+(() => {
+    const bar = document.querySelector('[data-bulk-bar]');
+    if (!bar) return;
+    const MAX_BULK_SELECTION = 50;
+    const boxes = () => [...document.querySelectorAll('.discovery-bulk-checkbox')];
+    const count = bar.querySelector('[data-bulk-count]');
+    const submit = bar.querySelector('[data-bulk-submit]');
+    const limitMessage = bar.querySelector('[data-bulk-limit-message]');
+    const update = () => {
+        const selectedBoxes = boxes().filter((box) => box.checked);
+        const selected = selectedBoxes.length;
+        count.textContent = `${selected} selected`;
+        submit.disabled = selected === 0;
+        if (limitMessage) limitMessage.hidden = selected <= MAX_BULK_SELECTION;
+    };
+    bar.querySelector('[data-bulk-select]').addEventListener('click', () => { boxes().forEach((box, index) => { box.checked = index < MAX_BULK_SELECTION; }); update(); });
+    bar.querySelector('[data-bulk-clear]').addEventListener('click', () => { boxes().forEach((box) => { box.checked = false; }); update(); });
+    boxes().forEach((box) => box.addEventListener('change', () => {
+        const selected = boxes().filter((item) => item.checked);
+        if (selected.length > MAX_BULK_SELECTION) box.checked = false;
+        update();
+    }));
+    update();
+})();
+</script>
+@endif
 @endsection

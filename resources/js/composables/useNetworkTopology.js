@@ -12,6 +12,8 @@ export function useNetworkTopology(baseUrl = '') {
         routers: [],
         subscriberNodes: [],
         pppoeNodes: [],
+        deviceNodes: [],
+        accessModeGroups: [],
         aggregateCount: 0,
         discoveryCounts: {},
         interfaceTraffic: [],
@@ -31,6 +33,8 @@ export function useNetworkTopology(baseUrl = '') {
             state.routers           = data.routers ?? [];
             state.subscriberNodes   = data.subscriber_nodes ?? [];
             state.pppoeNodes        = data.pppoe_nodes ?? [];
+            state.deviceNodes       = data.device_nodes ?? [];
+            state.accessModeGroups  = data.access_mode_groups ?? [];
             state.aggregateCount    = data.aggregate_count ?? 0;
             state.discoveryCounts   = data.discovery_counts ?? {};
             state.interfaceTraffic  = data.interface_traffic ?? [];

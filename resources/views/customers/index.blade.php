@@ -27,8 +27,10 @@
                     <thead>
                         <tr>
                             <th>Customer</th>
+                            <th>Connection</th>
                             <th class="cell-optional">Contact</th>
                             <th>State</th>
+                            <th>Location</th>
                             <th class="cell-actions">Actions</th>
                         </tr>
                     </thead>
@@ -39,11 +41,21 @@
                                     <a class="cell-key" href="{{ route('customers.show', $customer) }}">{{ $customer->name }}</a>
                                     <span class="cell-sub">{{ $customer->customer_code }}</span>
                                 </td>
+                                <td>
+                                    @php($connection = $customer->connections->first())
+                                    <span class="cell-key">{{ $connection?->access_mode_label ?? '—' }}</span>
+                                    @if($connection)
+                                        <span class="cell-sub">Mechanism: {{ $connection->network_mechanism_label }}</span>
+                                    @endif
+                                    <span class="cell-sub">{{ $connection?->metadata['network_identity'] ?? $connection?->networkAccount?->username ?? '—' }}</span>
+                                    <span class="cell-sub">{{ $connection?->router?->name ?? '—' }} · {{ $connection?->discoveredNetworkResource?->management_state ?? 'UNMAPPED' }}</span>
+                                </td>
                                 <td class="cell-optional cell-muted">
                                     {{ $customer->phone ?: '—' }}
                                     @if ($customer->email)<span class="cell-sub">{{ $customer->email }}</span>@endif
                                 </td>
                                 <td><span class="ui-status-badge ui-status-badge--{{ $customer->status }}">{{ $customer->status }}</span></td>
+                                <td class="mono-value">{{ $customer->latitude !== null && $customer->longitude !== null ? $customer->latitude.', '.$customer->longitude : 'Location not set' }}</td>
                                 <td>
                                     <div class="cell-actions">
                                         <a class="button button--quiet button--sm" href="{{ route('customers.edit', $customer) }}">Edit</a>
@@ -53,7 +65,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4"><p class="empty-state">No customers yet. Add the first subscriber, then create a connection from their record.</p></td>
+                                <td colspan="6"><p class="empty-state">No customers yet. Adopt a persisted Discovery identity explicitly or add a customer manually.</p></td>
                             </tr>
                         @endforelse
                     </tbody>

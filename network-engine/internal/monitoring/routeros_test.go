@@ -32,6 +32,26 @@ func TestRouterOSMonitoringProviderReadsOnlyTheThreeAllowlistedCommands(t *testi
 	}
 }
 
+func TestRouterOSMonitoringProviderHotspotAccountValidationReadsOnlyUserPrint(t *testing.T) {
+	transport := &monitoringTransportFake{responses: map[string][]map[string]string{
+		"/ip/hotspot/user/print": {{"name": "alice", "profile": "10M", "password": "must-not-escape", "secret": "must-not-escape"}},
+	}}
+	provider := NewRouterOSMonitoringProviderWithTransport(func() provider.RouterOSTransport { return transport })
+	users, err := provider.SurveyHotspotAccounts(context.Background(), RouterTarget{Host: "router.test", Port: 8728, Username: "readonly", Transport: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(transport.commands, []string{"/ip/hotspot/user/print"}) {
+		t.Fatalf("commands=%v", transport.commands)
+	}
+	if len(users) != 1 || users[0].Username != "alice" || users[0].Profile != "10M" {
+		t.Fatalf("users=%#v", users)
+	}
+	if transport.mutations != 0 || !transport.closed {
+		t.Fatalf("mutations=%d closed=%t", transport.mutations, transport.closed)
+	}
+}
+
 type monitoringTransportFake struct {
 	responses map[string][]map[string]string
 	commands  []string
@@ -43,7 +63,7 @@ func (f *monitoringTransportFake) Connect(context.Context, network.DiscoveryConn
 	return nil
 }
 func (f *monitoringTransportFake) Read(_ context.Context, command string) ([]map[string]string, error) {
-	if command != "/system/resource/print" && command != "/system/identity/print" && command != "/ppp/active/print" {
+	if command != "/system/resource/print" && command != "/system/identity/print" && command != "/ppp/active/print" && command != "/ip/hotspot/user/print" {
 		f.mutations++
 		return nil, errors.New("mutation")
 	}

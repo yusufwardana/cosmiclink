@@ -187,6 +187,79 @@ class Phase6HReconciliationAdoptionTest extends TestCase
         $this->assertSame(0, NetworkOperationLog::count());
     }
 
+    public function test_bulk_review_accepts_exactly_fifty_unique_individual_queue_ids(): void
+    {
+        [$tenant, $user, $router] = $this->tenantRouter();
+        $ids = collect(range(1, 50))->map(function (int $index) use ($tenant, $router) {
+            return DiscoveredNetworkResource::create([
+                'tenant_id' => $tenant->id,
+                'router_id' => $router->id,
+                'resource_type' => 'queue',
+                'external_ref' => 'queue-'.$index,
+                'name' => 'subscriber-'.$index,
+                'management_state' => 'DISCOVERED',
+                'fingerprint' => hash('sha256', 'queue-'.$index),
+                'normalized_data' => ['target' => '10.10.'.intdiv($index - 1, 254).'.'.(($index - 1) % 254 + 1).'/32'],
+                'first_seen_at' => now(),
+                'last_seen_at' => now(),
+            ])->id;
+        });
+
+        $this->actingAs($user)
+            ->post(route('network.discovery.bulk-review'), ['resource_ids' => $ids->all()])
+            ->assertOk()
+            ->assertViewIs('network.discovery-bulk-review')
+            ->assertViewHas('resources', fn ($resources) => $resources->count() === 50);
+    }
+
+    public function test_bulk_review_rejects_more_than_fifty_unique_ids(): void
+    {
+        [$tenant, $user, $router] = $this->tenantRouter();
+        $ids = collect(range(1, 51))->map(function (int $index) use ($tenant, $router) {
+            return DiscoveredNetworkResource::create([
+                'tenant_id' => $tenant->id,
+                'router_id' => $router->id,
+                'resource_type' => 'queue',
+                'external_ref' => 'queue-'.$index,
+                'name' => 'subscriber-'.$index,
+                'management_state' => 'DISCOVERED',
+                'fingerprint' => hash('sha256', 'queue-'.$index),
+                'normalized_data' => ['target' => '10.11.'.intdiv($index - 1, 254).'.'.(($index - 1) % 254 + 1).'/32'],
+                'first_seen_at' => now(),
+                'last_seen_at' => now(),
+            ])->id;
+        });
+
+        $this->actingAs($user)
+            ->from(route('network.discovery.index', ['type' => 'queue']))
+            ->post(route('network.discovery.bulk-review'), ['resource_ids' => $ids->all()])
+            ->assertStatus(422)
+            ->assertSee('Select no more than 50 identities per bulk operation.');
+    }
+
+    public function test_bulk_review_deduplicates_duplicate_ids_before_limit_check(): void
+    {
+        [$tenant, $user, $router] = $this->tenantRouter();
+        $resource = DiscoveredNetworkResource::create([
+            'tenant_id' => $tenant->id,
+            'router_id' => $router->id,
+            'resource_type' => 'queue',
+            'external_ref' => 'queue-duplicate-check',
+            'name' => 'subscriber-duplicate-check',
+            'management_state' => 'DISCOVERED',
+            'fingerprint' => hash('sha256', 'queue-duplicate-check'),
+            'normalized_data' => ['target' => '10.12.0.1/32'],
+            'first_seen_at' => now(),
+            'last_seen_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('network.discovery.bulk-review'), ['resource_ids' => [$resource->id, $resource->id, (string) $resource->id]])
+            ->assertOk()
+            ->assertViewIs('network.discovery-bulk-review')
+            ->assertViewHas('resources', fn ($resources) => $resources->count() === 1);
+    }
+
     private function discoveredFixture(): array
     {
         [$tenant, $user, $router] = $this->tenantRouter();

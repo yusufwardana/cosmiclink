@@ -44,6 +44,24 @@ func TestMonitoringCollectRequiresAuthAndReturnsNormalizedFakeSnapshot(t *testin
 	}
 }
 
+func TestHotspotAccountsEndpointReturnsSanitizedAccountsWithoutReachabilityOrSecrets(t *testing.T) {
+	provider := monitoring.NewFakeMonitoringProvider(monitoring.FakeScenario{HotspotUsers: []monitoring.HotspotUserSurveyEntry{{Username: "alice", Profile: "10M"}}})
+	server := NewWithMonitoring(nil, nil, provider, testToken, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/monitoring/hotspot-accounts", strings.NewReader(`{"router":{"host":"router.test","port":8728,"username":"readonly","password":"secret","transport":"api_ssl"}}`))
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("hotspot account status = %d body=%s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "secret") || strings.Contains(response.Body.String(), "password") {
+		t.Fatalf("secret leaked in response: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "alice") {
+		t.Fatalf("account missing from response: %s", response.Body.String())
+	}
+}
+
 type monitoringProviderFunc func(context.Context, monitoring.RouterTarget) (monitoring.Snapshot, error)
 
 func (f monitoringProviderFunc) Collect(ctx context.Context, target monitoring.RouterTarget) (monitoring.Snapshot, error) {
