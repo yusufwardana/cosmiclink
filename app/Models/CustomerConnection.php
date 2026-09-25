@@ -139,5 +139,9 @@ class CustomerConnection extends Model
     {
         return $this->hasMany(DeviceObservation::class)->latest('last_seen_at');
     }
-    public function liveState() { return $this->hasOne(LiveConnectionState::class); }
+
+    public function liveState()
+    {
+        return $this->hasOne(LiveConnectionState::class);
+    }
 }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Monitoring\MonitoringService;
+use App\Services\Monitoring\RouterCapabilityService;
 use App\Services\Monitoring\TrafficCollectionService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -11,6 +12,7 @@ Schedule::command('monitoring:run')->everyMinute()->withoutOverlapping();
 Schedule::command('monitoring:prune-observations')->daily()->withoutOverlapping();
 Schedule::command('monitoring:collect-traffic')->everyMinute()->withoutOverlapping();
 Schedule::command('monitoring:prune-traffic')->daily()->withoutOverlapping();
+Schedule::command('monitoring:prune-capability-snapshots')->daily()->withoutOverlapping();
 
 Artisan::command('monitoring:run', function (MonitoringService $monitoring) {
     $this->info('Monitoring observations written: '.$monitoring->runScheduled());
@@ -28,6 +30,10 @@ Artisan::command('monitoring:prune-traffic', function (TrafficCollectionService 
     $pruned = $traffic->prune();
     $this->info("Pruned traffic collections: {$pruned['collections']}; buckets: {$pruned['buckets']}");
 })->purpose('Prune expired traffic samples and buckets');
+
+Artisan::command('monitoring:prune-capability-snapshots', function (RouterCapabilityService $capabilities) {
+    $this->info('Pruned capability snapshots: '.$capabilities->prune());
+})->purpose('Prune expired RouterOS capability snapshots');
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

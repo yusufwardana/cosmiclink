@@ -21,7 +21,11 @@ class TrafficCollectionService
         'hotspot_sessions' => 'hotspot_session',
     ];
 
-    public function __construct(private readonly GoNetworkMonitoringClient $client, private readonly LiveMonitoringService $liveMonitoring) {}
+    public function __construct(
+        private readonly GoNetworkMonitoringClient $client,
+        private readonly LiveMonitoringService $liveMonitoring,
+        private readonly RouterCapabilityService $capabilities,
+    ) {}
 
     public function collectRouter(Router $router): ?TrafficCollection
     {
@@ -33,6 +37,15 @@ class TrafficCollectionService
         $response = $this->client->collectTraffic($router, $includeEnrichment);
         $snapshot = $this->validatedSnapshot($response);
         if ($snapshot === null) {
+            $this->liveMonitoring->refreshRouter(
+                $router,
+                LiveMonitoringCycle::failed(
+                    now(),
+                    (string) data_get($response, 'failure.code', 'INVALID_TRAFFIC_SNAPSHOT'),
+                    'traffic',
+                ),
+            );
+
             return null;
         }
 
@@ -83,8 +96,11 @@ class TrafficCollectionService
                     $this->persistSample($collection, $previousCollection, $sourceType, $source, $delayed);
                 }
             }
-
-            $this->liveMonitoring->refreshRouter($lockedRouter->id);
+            $cycle = LiveMonitoringCycle::successful($snapshot['collected_at'], 'traffic');
+            DB::afterCommit(function () use ($lockedRouter, $snapshot, $cycle): void {
+                $this->capabilities->recordTrafficEvidence($lockedRouter, $snapshot);
+                $this->liveMonitoring->refreshRouter($lockedRouter, $cycle);
+            });
 
             return $collection;
         });

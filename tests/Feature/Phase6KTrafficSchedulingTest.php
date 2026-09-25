@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Router;
+use App\Models\RouterCapabilitySnapshot;
 use App\Models\Tenant;
 use App\Models\TrafficCollection;
 use App\Services\Network\GoNetworkMonitoringClient;
@@ -77,6 +78,29 @@ class Phase6KTrafficSchedulingTest extends TestCase
         $this->assertNotNull($prune);
         $this->assertSame('0 0 * * *', $prune->expression);
         $this->assertTrue($prune->withoutOverlapping);
+    }
+
+    public function test_capability_snapshot_prune_command_and_scheduler_are_registered(): void
+    {
+        config()->set('monitoring.capabilities.retention_days', 90);
+        $router = Router::factory()->for(Tenant::factory())->create();
+        RouterCapabilitySnapshot::create([
+            'tenant_id' => $router->tenant_id,
+            'router_id' => $router->id,
+            'capabilities' => [],
+            'source' => 'test',
+            'verified_at' => now()->subDays(91),
+        ]);
+
+        $this->artisan('monitoring:prune-capability-snapshots')
+            ->expectsOutput('Pruned capability snapshots: 1')
+            ->assertSuccessful();
+
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($scheduled) => str_contains($scheduled->command ?? '', 'monitoring:prune-capability-snapshots'));
+        $this->assertNotNull($event);
+        $this->assertSame('0 0 * * *', $event->expression);
+        $this->assertTrue($event->withoutOverlapping);
     }
 
     private function snapshot(string $collectedAt): array

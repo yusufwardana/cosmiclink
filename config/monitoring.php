@@ -16,8 +16,11 @@ return [
         'offline_failure_threshold' => (int) env('MONITORING_LIVE_OFFLINE_FAILURE_THRESHOLD', 3),
         'cache_ttl_seconds' => (int) env('MONITORING_LIVE_CACHE_TTL_SECONDS', 90),
     ],
+    'capabilities' => [
+        'checkpoint_seconds' => (int) env('MONITORING_CAPABILITY_CHECKPOINT_SECONDS', 86400),
+        'retention_days' => (int) env('MONITORING_CAPABILITY_RETENTION_DAYS', 90),
+    ],
     'traffic' => [
-        'collection_interval_seconds' => (int) env('MONITORING_TRAFFIC_COLLECTION_INTERVAL_SECONDS', 60),
         'enabled' => filter_var(env('MONITORING_TRAFFIC_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         'enrichment_interval_seconds' => (int) env('MONITORING_TRAFFIC_ENRICHMENT_INTERVAL_SECONDS', 300),
         'raw_retention_days' => (int) env('MONITORING_TRAFFIC_RAW_RETENTION_DAYS', 14),

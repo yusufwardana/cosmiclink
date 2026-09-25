@@ -26,7 +26,7 @@ class GoMonitoringDriver implements MonitoringDriver
             ]);
         }
 
-        $this->capabilities->refreshFromMonitoring($router, $payload);
+        $this->capabilities->recordHealthEvidence($router, $payload, $observedAt);
 
         $memoryTotal = (int) ($payload['memory_total_bytes'] ?? 0);
         $memoryFree = (int) ($payload['memory_free_bytes'] ?? 0);

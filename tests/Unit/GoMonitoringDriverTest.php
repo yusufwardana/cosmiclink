@@ -10,6 +10,7 @@ use App\Models\Router;
 use App\Models\Tenant;
 use App\Services\Monitoring\GoMonitoringDriver;
 use App\Services\Monitoring\HealthState;
+use App\Services\Monitoring\RouterCapabilityService;
 use App\Services\Network\GoNetworkMonitoringClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -34,7 +35,7 @@ class GoMonitoringDriverTest extends TestCase
             }
         };
 
-        $result = (new GoMonitoringDriver($client))->observeConnection($connection);
+        $result = (new GoMonitoringDriver($client, app(RouterCapabilityService::class)))->observeConnection($connection);
 
         $this->assertSame(HealthState::ONLINE, $result->state);
     }
@@ -50,7 +51,7 @@ class GoMonitoringDriverTest extends TestCase
         };
         $connection = CustomerConnection::factory()->create(['provisioned_at' => now()]);
 
-        $result = (new GoMonitoringDriver($client))->observeConnection($connection);
+        $result = (new GoMonitoringDriver($client, app(RouterCapabilityService::class)))->observeConnection($connection);
 
         $this->assertSame(HealthState::UNKNOWN, $result->state);
         $this->assertNull($result->online);

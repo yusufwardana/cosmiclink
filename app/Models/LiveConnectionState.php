@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Monitoring\LiveConnectionStatus;
 use Illuminate\Database\Eloquent\Model;
 
 class LiveConnectionState extends Model
@@ -13,6 +14,7 @@ class LiveConnectionState extends Model
     ];
 
     protected $casts = [
+        'state' => LiveConnectionStatus::class,
         'confidence' => 'integer',
         'upload_bps' => 'integer',
         'download_bps' => 'integer',
