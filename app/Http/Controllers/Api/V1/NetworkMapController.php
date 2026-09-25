@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\HealthObservation;
 use App\Models\Router;
-use App\Models\Customer;
 use App\Services\GisNetworkMapSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,24 +60,39 @@ class NetworkMapController extends Controller
 
         $allCustomers = Customer::query()
             ->where('tenant_id', $tenantId)
-            ->with(['connections.router', 'connections.networkAccount', 'connections.discoveredNetworkResource'])
+            ->with([
+                'connections' => fn ($query) => $query->where('tenant_id', $tenantId)->orderBy('id'),
+                'connections.router',
+                'connections.networkAccount',
+                'connections.discoveredNetworkResource',
+                'connections.liveState' => fn ($query) => $query->where('tenant_id', $tenantId),
+            ])
             ->get();
 
         $mapCustomer = function (Customer $customer): array {
             $connection = $customer->connections->first();
             $resource = $connection?->discoveredNetworkResource;
+            $liveState = $connection?->liveState;
 
             return [
                 'id' => $customer->id,
                 'name' => $customer->name,
                 'code' => $customer->customer_code,
                 'status' => $customer->status,
+                'connection_id' => $connection?->id,
+                'connection_status' => $connection?->status,
                 'latitude' => $customer->latitude,
                 'longitude' => $customer->longitude,
-                'connection_mode' => $connection?->metadata['connection_mode'] ?? null,
+                'connection_mode' => $connection?->access_mode,
                 'network_identity' => $connection?->metadata['network_identity'] ?? $resource?->normalized_data['target'] ?? null,
                 'router' => $connection?->router?->name,
                 'management_state' => $resource?->management_state,
+                'live_state' => $liveState?->state?->value ?? 'unknown',
+                'activity_state' => $liveState?->metadata['activity_state'] ?? null,
+                'upload_bps' => $liveState?->upload_bps,
+                'download_bps' => $liveState?->download_bps,
+                'failure_streak' => $liveState?->failure_streak ?? 0,
+                'live_observed_at' => $liveState?->observed_at?->toIso8601String(),
             ];
         };
 

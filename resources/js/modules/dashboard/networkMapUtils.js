@@ -57,3 +57,29 @@ export function routerMarkerDisplay(settings) {
         showStatus: mapSettingEnabled(settings, 'show_status'),
     };
 }
+
+export function customerMapStatus(customer = {}) {
+    const lifecycle = String(customer.connection_status ?? customer.status ?? '').toLowerCase();
+    if (['isolated', 'suspended'].includes(lifecycle)) return 'isolated';
+
+    return {
+        online: 'online',
+        suspected_offline: 'degraded',
+        offline: 'offline',
+        unknown: 'unknown',
+        stale: 'unknown',
+    }[String(customer.live_state ?? 'unknown').toLowerCase()] ?? 'unknown';
+}
+
+export function mapHealthSummary(routers = [], customers = []) {
+    const customerStatuses = customers.map(customerMapStatus);
+
+    return {
+        routersOnline: routers.filter((item) => String(item.monitoring_state ?? 'unknown').toLowerCase() === 'online').length,
+        customersOnline: customerStatuses.filter((status) => status === 'online').length,
+        isolated: customerStatuses.filter((status) => status === 'isolated').length,
+        warning: customerStatuses.filter((status) => status === 'degraded').length,
+        offline: customerStatuses.filter((status) => status === 'offline').length,
+        unknown: customerStatuses.filter((status) => status === 'unknown').length,
+    };
+}

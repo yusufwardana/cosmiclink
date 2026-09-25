@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { customerMapStatus } from './networkMapUtils.js';
 
 const props = defineProps({
     router: { type: Object, default: null },
@@ -16,6 +17,13 @@ const stateClass = computed(() => ({
     degraded: 'ui-status-badge--degraded',
     offline: 'ui-status-badge--offline',
 })[(props.router?.monitoring_state ?? 'unknown').toLowerCase()] ?? '');
+const customerState = computed(() => customerMapStatus(props.customer ?? {}));
+const customerStateClass = computed(() => ({
+    online: 'ui-status-badge--online',
+    degraded: 'ui-status-badge--degraded',
+    offline: 'ui-status-badge--offline',
+    isolated: 'ui-status-badge--offline',
+})[customerState.value] ?? '');
 const displayCoordinates = computed(() => props.candidate ?? (props.router ? { latitude: props.router.latitude, longitude: props.router.longitude } : null));
 const value = (item) => item === null || item === undefined || item === '' ? '—' : item;
 </script>
@@ -29,12 +37,13 @@ const value = (item) => item === null || item === undefined || item === '' ? '�
             </div>
             <button class="network-map-detail__close" type="button" aria-label="Close details" @click="emit('close')">×</button>
             <span v-if="router" class="ui-status-badge" :class="stateClass">{{ (router.monitoring_state ?? 'unknown').toUpperCase() }}</span>
-            <span v-else-if="customer" class="ui-status-badge">{{ (customer.status ?? 'unknown').toUpperCase() }}</span>
+            <span v-else-if="customer" class="ui-status-badge" :class="customerStateClass">{{ customerState.toUpperCase() }}</span>
         </div>
         <div class="panel__body">
             <template v-if="customer">
-                <div class="network-map-detail__identity"><span class="network-map-detail__code mono-value">{{ customer.code || `CL${String(customer.id).padStart(6, '0')}` }}</span><span class="ui-status-badge">{{ (customer.status ?? 'unknown').toUpperCase() }}</span></div>
-                <section class="network-map-detail__section"><h3>Network</h3><div class="spec"><div class="spec__row"><span class="spec__key">Connection</span><span class="spec__val mono-value">{{ customer.connection_mode ? customer.connection_mode.replace('_', ' ').toUpperCase() : '—' }}</span></div><div class="spec__row"><span class="spec__key">Identity</span><span class="spec__val mono-value">{{ customer.network_identity ?? '—' }}</span></div><div class="spec__row"><span class="spec__key">Router</span><span class="spec__val">{{ customer.router ?? '—' }}</span></div><div class="spec__row"><span class="spec__key">Management</span><span class="spec__val mono-value">{{ customer.management_state ?? 'UNMAPPED' }}</span></div></div></section>
+                <div class="network-map-detail__identity"><span class="network-map-detail__code mono-value">{{ customer.code || `CL${String(customer.id).padStart(6, '0')}` }}</span><span class="ui-status-badge" :class="customerStateClass">{{ customerState.toUpperCase() }}</span></div>
+                <section class="network-map-detail__section"><h3>Network</h3><div class="spec"><div class="spec__row"><span class="spec__key">Lifecycle</span><span class="spec__val mono-value">{{ (customer.connection_status ?? customer.status ?? 'unknown').toUpperCase() }}</span></div><div class="spec__row"><span class="spec__key">Connection</span><span class="spec__val mono-value">{{ customer.connection_mode ? customer.connection_mode.replace('_', ' ').toUpperCase() : '—' }}</span></div><div class="spec__row"><span class="spec__key">Identity</span><span class="spec__val mono-value">{{ customer.network_identity ?? '—' }}</span></div><div class="spec__row"><span class="spec__key">Router</span><span class="spec__val">{{ customer.router ?? '—' }}</span></div><div class="spec__row"><span class="spec__key">Management</span><span class="spec__val mono-value">{{ customer.management_state ?? 'UNMAPPED' }}</span></div></div></section>
+                <section class="network-map-detail__section"><h3>Live monitoring</h3><div class="spec"><div class="spec__row"><span class="spec__key">State</span><span class="spec__val mono-value">{{ customerState.toUpperCase() }}</span></div><div class="spec__row"><span class="spec__key">Activity</span><span class="spec__val mono-value">{{ value(customer.activity_state)?.toString().toUpperCase() }}</span></div><div class="spec__row"><span class="spec__key">Upload</span><span class="spec__val mono-value">{{ customer.upload_bps == null ? '—' : `${customer.upload_bps} bps` }}</span></div><div class="spec__row"><span class="spec__key">Download</span><span class="spec__val mono-value">{{ customer.download_bps == null ? '—' : `${customer.download_bps} bps` }}</span></div><div class="spec__row"><span class="spec__key">Last observed</span><span class="spec__val mono-value">{{ value(customer.live_observed_at?.slice(0, 16).replace('T', ' ')) }}</span></div></div></section>
                 <section class="network-map-detail__section"><h3>Location</h3><div class="network-map-detail__coordinates mono-value">{{ displayCoordinates ? `${displayCoordinates.latitude}, ${displayCoordinates.longitude}` : 'Location not set' }}</div></section>
                 <div v-if="locationMode" class="network-map-location-editor">
                     <p class="console-note">Click the map to choose a candidate position. Nothing is saved until you confirm.</p>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { locationSaveState, mapBoundsFromPoints, mapSettingEnabled, networkMapViewState, positionedMapPoints, routerMarkerDisplay, routerMapCoordinate, validCoordinatePair } from './networkMapUtils.js';
+import { customerMapStatus, locationSaveState, mapBoundsFromPoints, mapHealthSummary, mapSettingEnabled, networkMapViewState, positionedMapPoints, routerMarkerDisplay, routerMapCoordinate, validCoordinatePair } from './networkMapUtils.js';
 
 test('accepts only persisted coordinate pairs within geographic bounds', () => {
     assert.equal(validCoordinatePair({ latitude: -7.7, longitude: 110.3 }), true);
@@ -45,4 +45,34 @@ test('honors persisted GIS marker settings with safe defaults', () => {
     assert.equal(mapSettingEnabled({ navigation_controls: false }, 'navigation_controls'), false);
     assert.equal(mapSettingEnabled({}, 'navigation_controls'), true);
     assert.deepEqual(routerMarkerDisplay({ show_router_name: false, show_status: false }), { showName: false, showStatus: false });
+});
+
+test('maps customer lifecycle and live evidence to GIS marker status', () => {
+    assert.equal(customerMapStatus({ status: 'isolated', live_state: 'online' }), 'isolated');
+    assert.equal(customerMapStatus({ connection_status: 'suspended', live_state: 'online' }), 'isolated');
+    assert.equal(customerMapStatus({ live_state: 'online' }), 'online');
+    assert.equal(customerMapStatus({ live_state: 'suspected_offline' }), 'degraded');
+    assert.equal(customerMapStatus({ live_state: 'offline' }), 'offline');
+    assert.equal(customerMapStatus({ live_state: 'stale' }), 'unknown');
+    assert.equal(customerMapStatus({}), 'unknown');
+});
+
+test('summarises router and mapped customer health separately', () => {
+    assert.deepEqual(mapHealthSummary(
+        [{ monitoring_state: 'online' }, { monitoring_state: 'unknown' }],
+        [
+            { live_state: 'online' },
+            { live_state: 'online' },
+            { connection_status: 'suspended', live_state: 'online' },
+            { live_state: 'offline' },
+            { live_state: 'stale' },
+        ],
+    ), {
+        routersOnline: 1,
+        customersOnline: 2,
+        isolated: 1,
+        warning: 0,
+        offline: 1,
+        unknown: 1,
+    });
 });

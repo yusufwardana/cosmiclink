@@ -2,7 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\Customer;
+use App\Models\CustomerConnection;
 use App\Models\HealthObservation;
+use App\Models\InternetPackage;
+use App\Models\LiveConnectionState;
 use App\Models\Router;
 use App\Models\Tenant;
 use App\Models\User;
@@ -76,7 +80,7 @@ class NetworkMapTest extends TestCase
     public function test_network_map_exposes_unlocated_customers_without_assigning_coordinates(): void
     {
         [$tenant, $user] = $this->tenantWithUser();
-        $customer = \App\Models\Customer::factory()->for($tenant)->create(['name' => 'MAHLOR', 'latitude' => null, 'longitude' => null]);
+        $customer = Customer::factory()->for($tenant)->create(['name' => 'MAHLOR', 'latitude' => null, 'longitude' => null]);
 
         $this->actingAs($user)
             ->getJson('/api/v1/network-map')
@@ -85,6 +89,99 @@ class NetworkMapTest extends TestCase
             ->assertJsonPath('data.unlocated_customers.0.name', 'MAHLOR')
             ->assertJsonPath('data.unlocated_customers.0.latitude', null)
             ->assertJsonPath('data.unlocated_customers.0.longitude', null);
+    }
+
+    public function test_network_map_exposes_tenant_scoped_customer_live_state(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        [$otherTenant] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $package = InternetPackage::factory()->for($tenant)->create();
+        $customer = Customer::factory()->for($tenant)->create([
+            'name' => 'Online Customer',
+            'latitude' => -7.7956,
+            'longitude' => 110.3695,
+        ]);
+        $connection = CustomerConnection::factory()->for($customer)->for($package)->for($router)->create([
+            'tenant_id' => $tenant->id,
+            'status' => 'active',
+            'metadata' => ['access_mode' => 'static_ip', 'network_mechanism' => 'simple_queue', 'network_identity' => '10.0.0.2/32'],
+        ]);
+        LiveConnectionState::create([
+            'tenant_id' => $tenant->id,
+            'router_id' => $router->id,
+            'customer_connection_id' => $connection->id,
+            'state' => 'online',
+            'signal_source' => 'traffic',
+            'confidence' => 100,
+            'upload_bps' => 800,
+            'download_bps' => 1600,
+            'failure_streak' => 0,
+            'last_seen_at' => now(),
+            'observed_at' => now(),
+            'metadata' => ['activity_state' => 'active'],
+        ]);
+
+        $foreignRouter = Router::factory()->for($otherTenant)->create();
+        $foreignCustomer = Customer::factory()->for($otherTenant)->create(['latitude' => 1, 'longitude' => 2]);
+        $foreignPackage = InternetPackage::factory()->for($otherTenant)->create();
+        $foreignConnection = CustomerConnection::factory()->for($foreignCustomer)->for($foreignPackage)->for($foreignRouter)->create(['tenant_id' => $otherTenant->id]);
+        LiveConnectionState::create([
+            'tenant_id' => $otherTenant->id,
+            'router_id' => $foreignRouter->id,
+            'customer_connection_id' => $foreignConnection->id,
+            'state' => 'offline',
+            'signal_source' => 'absence',
+            'confidence' => 90,
+            'failure_streak' => 3,
+            'observed_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/v1/network-map')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.customers')
+            ->assertJsonPath('data.customers.0.id', $customer->id)
+            ->assertJsonPath('data.customers.0.connection_id', $connection->id)
+            ->assertJsonPath('data.customers.0.live_state', 'online')
+            ->assertJsonPath('data.customers.0.activity_state', 'active')
+            ->assertJsonPath('data.customers.0.upload_bps', 800)
+            ->assertJsonPath('data.customers.0.download_bps', 1600)
+            ->assertJsonPath('data.customers.0.failure_streak', 0)
+            ->assertJsonMissing(['id' => $foreignCustomer->id]);
+    }
+
+    public function test_network_map_defaults_customer_without_live_evidence_to_unknown(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        [$otherTenant] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create();
+        $package = InternetPackage::factory()->for($tenant)->create();
+        $customer = Customer::factory()->for($tenant)->create([
+            'latitude' => -7.7956,
+            'longitude' => 110.3695,
+        ]);
+        $connection = CustomerConnection::factory()->for($customer)->for($package)->for($router)->create([
+            'tenant_id' => $tenant->id,
+        ]);
+        LiveConnectionState::create([
+            'tenant_id' => $otherTenant->id,
+            'router_id' => $router->id,
+            'customer_connection_id' => $connection->id,
+            'state' => 'online',
+            'signal_source' => 'corrupt-cross-tenant-evidence',
+            'confidence' => 100,
+            'failure_streak' => 0,
+            'observed_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/v1/network-map')
+            ->assertOk()
+            ->assertJsonPath('data.customers.0.id', $customer->id)
+            ->assertJsonPath('data.customers.0.live_state', 'unknown')
+            ->assertJsonPath('data.customers.0.activity_state', null)
+            ->assertJsonPath('data.customers.0.live_observed_at', null);
     }
 
     public function test_router_location_update_validates_coordinates_and_changes_only_location_fields(): void
@@ -124,7 +221,7 @@ class NetworkMapTest extends TestCase
     public function test_customer_location_update_is_tenant_scoped_and_location_only(): void
     {
         [$tenant, $user] = $this->tenantWithUser();
-        $customer = \App\Models\Customer::factory()->for($tenant)->create(['name' => 'PC']);
+        $customer = Customer::factory()->for($tenant)->create(['name' => 'PC']);
 
         $this->actingAs($user)->putJson("/api/v1/network-map/customers/{$customer->id}/location", ['latitude' => -7.8938, 'longitude' => 110.8485])->assertOk();
 
