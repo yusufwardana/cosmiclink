@@ -17,7 +17,7 @@
     <article class="stat-card stat-card--accent">
         <span class="stat-card__label">Routers online</span>
         <span class="stat-card__value">{{ $onlineRouters }}/{{ $routerCount }}</span>
-        <span class="stat-card__hint">{{ $routerHealth['degraded'] }} degraded · {{ $routerHealth['offline'] }} offline</span>
+        <span class="stat-card__hint">{{ $routerHealth['degraded'] }} degraded · {{ $routerHealth['offline'] }} offline · {{ $routerHealth['unknown'] }} unknown</span>
     </article>
     <article class="stat-card stat-card--accent">
         <span class="stat-card__label">Discovery resources</span>
@@ -97,6 +97,9 @@
             </div>
             @if ($routerTelemetry)
                 <div class="cosmic-terminal cosmic-terminal--compact dashboard-telemetry">
+                    @if ($routerTelemetry['stale'] ?? false)
+                        <div class="cosmic-terminal__line"><span class="cosmic-terminal__tag cosmic-terminal__tag--warn">[STALE TELEMETRY]</span><span class="cosmic-terminal__value">newer health evidence has no telemetry payload</span></div>
+                    @endif
                     <div class="cosmic-terminal__line"><span class="cosmic-terminal__label">router</span><span class="cosmic-terminal__value">{{ $routerTelemetry['router'] ?? '—' }}</span></div>
                     <div class="cosmic-terminal__line"><span class="cosmic-terminal__label">RouterOS</span><span class="cosmic-terminal__value">{{ $routerTelemetry['version'] ?? '—' }}</span></div>
                     <div class="cosmic-terminal__line"><span class="cosmic-terminal__label">CPU / memory</span><span class="cosmic-terminal__value">{{ isset($routerTelemetry['cpu_load_percent']) ? $routerTelemetry['cpu_load_percent'].'%' : '—' }} / {{ isset($routerTelemetry['memory_used_percent']) ? $routerTelemetry['memory_used_percent'].'%' : '—' }}</span></div>

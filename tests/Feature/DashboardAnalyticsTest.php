@@ -54,9 +54,43 @@ class DashboardAnalyticsTest extends TestCase
         $this->actingAs($user)->get('/network/topology')->assertOk();
     }
 
+    public function test_dashboard_online_summary_uses_latest_health_and_marks_older_telemetry_stale(): void
+    {
+        [$tenant, $user] = $this->tenantWithUser();
+        $router = Router::factory()->for($tenant)->create(['status' => 'available']);
+        HealthObservation::factory()->for($tenant)->create([
+            'subject_type' => 'router',
+            'subject_id' => $router->id,
+            'health_state' => 'online',
+            'reachable' => true,
+            'online' => true,
+            'observed_at' => now()->subMinutes(5),
+            'provider' => 'engine',
+            'metadata' => ['version' => '6.49.13', 'cpu_load_percent' => 27, 'memory_used_percent' => 24],
+        ]);
+        HealthObservation::factory()->for($tenant)->create([
+            'subject_type' => 'router',
+            'subject_id' => $router->id,
+            'health_state' => 'unknown',
+            'reachable' => false,
+            'online' => null,
+            'observed_at' => now(),
+            'provider' => 'engine',
+            'metadata' => ['failure_code' => 'ENGINE_UNAVAILABLE'],
+        ]);
+
+        $response = $this->actingAs($user)->get('/dashboard')->assertOk();
+
+        $response->assertSee('0/1')
+            ->assertSee('1 unknown')
+            ->assertSee('STALE TELEMETRY')
+            ->assertDontSee('1/1');
+    }
+
     private function tenantWithUser(): array
     {
         $tenant = Tenant::factory()->create();
+
         return [$tenant, User::factory()->for($tenant)->create()];
     }
 }
